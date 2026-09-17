@@ -24,7 +24,15 @@ Built in an evening to show the CSV → model → dashboard path on Publisher.
 
 ## Run it
 
-From a clone of this repo (Node ≥ 20, Bun ≥ 1.3.13, a JDK for the SDK build; on Windows use Git Bash):
+The one-liner, from the repo root (Node ≥ 20, nothing else installed): it runs the published
+Publisher server via `npx` against [`demo/publisher.config.json`](../../demo/publisher.config.json),
+which lists this package first, and opens the dashboard once the server is serving.
+
+```bash
+node demo.mjs
+```
+
+Or from source (Node ≥ 20, Bun ≥ 1.3.13, a JDK for the SDK build; on Windows use Git Bash):
 
 ```bash
 bun install
@@ -32,7 +40,7 @@ bun run build
 cd packages/server && bun run ./dist/server.mjs --port 4000 --mcp_port 4040 --host 127.0.0.1 --init
 ```
 
-Poll until it's serving, then open the Console:
+Either way, poll until it's serving, then open the Console:
 
 ```bash
 curl -s http://127.0.0.1:4000/api/v0/status | grep -o '"operationalState":"[a-z]*"'   # -> "serving"
@@ -44,8 +52,8 @@ curl -s http://127.0.0.1:4000/api/v0/status | grep -o '"operationalState":"[a-z]
 - Dashboard: <http://127.0.0.1:4000/examples/nfl-2024/dashboards/season> — pick a **Team** and every
   tile re-runs; the choice lands in the URL (`?TEAM=…`), so the filtered page is a link.
 
-The package is registered in `packages/server/publisher.config.json` under the `examples`
-environment beside `storefront`. `--init` is only needed the first time (or after editing the CSVs
+The package is registered in `packages/server/publisher.config.json` (the from-source server) and in
+`demo/publisher.config.json` (the one-liner) under the `examples` environment beside `storefront`. `--init` is only needed the first time (or after editing the CSVs
 or models outside watch mode), because Publisher serves a copy it makes at startup. For live
 editing, start with `--watch-env examples --init` once; after that a saved `.malloy` edit reloads
 without a restart (a save that fails to compile is skipped and reported under `loadErrors` on
