@@ -1,0 +1,19 @@
+{
+  "frozenConfig": false,
+  "environments": [
+    {
+      "name": "examples",
+      "packages": [
+        {
+          "name": "nfl-2024",
+          "location": "../../examples/nfl-2024"
+        },
+        {
+          "name": "storefront",
+          "location": "../../examples/storefront"
+        }
+      ],
+      "connections": []
+    }
+  ]
+}
