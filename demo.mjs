@@ -44,6 +44,8 @@ Options:
                         publisher.db, DuckDB spill). Default: demo/.run.
                         NOTE: publisher_data/ under it is wiped on every start,
                         and a private package.json is written there if missing.
+                        In a clone where \`bun install\` has been run, a root
+                        OUTSIDE the clone also saves ~50 s of npx pre-flight.
   --port <n>            REST + Console port (default 4000)
   --mcp_port <n>        MCP port (default 4040)
   --host <addr>         Bind address (default 127.0.0.1)
@@ -344,9 +346,11 @@ function stop(signal, exitCode) {
    process.stdout.write(`\ndemo: stopping the server (${signal})...\n`);
    try {
       // POSIX: npx forwards SIGINT/SIGTERM to the server it spawned.
-      // Windows: a console Ctrl-C already reached every process on this
-      // console; kill() here is a plain terminate of npx, so the tree kill
-      // below is what actually stops the server if it did not get the event.
+      // Windows: a console Ctrl-C already reached npx and the server on this
+      // console and both exit on their own (verified: the whole tree is gone
+      // and nothing is left listening). kill() here would only terminate npx
+      // and orphan the server, so skip it; the tree kill below covers a stop
+      // that did NOT come from the console, e.g. PUBLISHER_INIT_FAILED.
       if (process.platform !== "win32") child.kill(signal);
    } catch {
       // Already gone.
