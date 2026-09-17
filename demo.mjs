@@ -1,0 +1,457 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+//
+// demo.mjs — serve this repo's example packages with one command and nothing
+// installed:
+//
+//     node demo.mjs
+//
+// It runs the published Malloy Publisher server (npx, pinned version below)
+// against demo/publisher.config.json, waits until the server reports
+// `operationalState: "serving"`, prints the Console / package / dashboard /
+// MCP URLs and opens the dashboard in your browser. Ctrl-C stops everything.
+//
+// Node >= 20 only, no dependencies. `node demo.mjs --help` lists the flags;
+// `--package <dir>` serves any package directory instead of the bundled
+// examples, which is how another project reuses this file unchanged.
+
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SERVER_PACKAGE = "@malloy-publisher/server";
+// Pinned: the npx cache happily re-runs a stale `@latest`, and the server does
+// not print its version. Bump deliberately; `--latest` overrides for a look.
+const SERVER_VERSION = "0.4.0";
+const NODE_MAJOR_REQUIRED = 20;
+
+const REPO = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_CONFIG = path.join(REPO, "demo", "publisher.config.json");
+const DEFAULT_SERVER_ROOT = path.join(REPO, "demo", ".run");
+
+const USAGE = `Usage: node demo.mjs [options] [-- <extra server flags>]
+
+Serves the example packages (demo/publisher.config.json) on the published
+${SERVER_PACKAGE}@${SERVER_VERSION} via npx. First run downloads the server.
+
+Options:
+  --package <dir>       Serve one package directory (needs a publisher.json)
+                        instead of the bundled examples. A config is generated
+                        under the server root for it.
+  --config <file>       Use this publisher.config.json (overrides --package).
+  --server_root <dir>   Where the server keeps its storage (publisher_data/,
+                        publisher.db, DuckDB spill). Default: demo/.run.
+                        NOTE: publisher_data/ under it is wiped on every start,
+                        and a private package.json is written there if missing.
+  --port <n>            REST + Console port (default 4000)
+  --mcp_port <n>        MCP port (default 4040)
+  --host <addr>         Bind address (default 127.0.0.1)
+  --latest              Run ${SERVER_PACKAGE}@latest instead of the pinned version
+  --no-open             Do not open the browser
+  -h, --help            This text
+  --                    Everything after it is passed to the server as-is
+                        (e.g. -- --watch-env examples)
+`;
+
+// ---------------------------------------------------------------------------
+// 0. Node floor. The published server exits with PUBLISHER_UNSUPPORTED_NODE on
+//    an old Node, but only after npx has downloaded 30 MB; say it up front.
+// ---------------------------------------------------------------------------
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (!(nodeMajor >= NODE_MAJOR_REQUIRED)) {
+   process.stderr.write(
+      `PUBLISHER_UNSUPPORTED_NODE required=>=${NODE_MAJOR_REQUIRED} detected=${process.versions.node}\n` +
+         `Fix: install Node ${NODE_MAJOR_REQUIRED} or newer (https://nodejs.org, or \`nvm install 22 && nvm use 22\`), then run \`node demo.mjs\` again.\n`,
+   );
+   process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// 1. Arguments
+// ---------------------------------------------------------------------------
+function parseArgs(argv) {
+   const opts = {
+      package: null,
+      config: null,
+      serverRoot: DEFAULT_SERVER_ROOT,
+      port: "4000",
+      mcpPort: "4040",
+      host: "127.0.0.1",
+      latest: false,
+      open: true,
+      extra: [],
+   };
+   const takesValue = {
+      "--package": "package",
+      "--config": "config",
+      "--server_root": "serverRoot",
+      "--port": "port",
+      "--mcp_port": "mcpPort",
+      "--host": "host",
+   };
+   for (let i = 0; i < argv.length; i++) {
+      const arg = argv[i];
+      if (arg === "--") {
+         opts.extra = argv.slice(i + 1);
+         break;
+      }
+      if (arg === "-h" || arg === "--help") {
+         process.stdout.write(USAGE);
+         process.exit(0);
+      }
+      if (arg === "--latest") {
+         opts.latest = true;
+      } else if (arg === "--no-open") {
+         opts.open = false;
+      } else if (arg in takesValue) {
+         const value = argv[i + 1];
+         if (value === undefined || value.startsWith("--")) {
+            fail(`${arg} needs a value.\n\n${USAGE}`, 2);
+         }
+         opts[takesValue[arg]] = value;
+         i++;
+      } else {
+         fail(`Unknown option: ${arg}\n\n${USAGE}`, 2);
+      }
+   }
+   for (const key of ["port", "mcpPort"]) {
+      if (!/^\d{1,5}$/.test(opts[key])) {
+         fail(`--${key === "mcpPort" ? "mcp_port" : key} must be a port number, got "${opts[key]}".`, 2);
+      }
+   }
+   return opts;
+}
+
+function fail(message, code = 1) {
+   process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
+   process.exit(code);
+}
+
+const opts = parseArgs(process.argv.slice(2));
+
+// ---------------------------------------------------------------------------
+// 2. Server root + config
+// ---------------------------------------------------------------------------
+const serverRoot = path.resolve(opts.serverRoot);
+// `--init` deletes <server_root>/publisher_data on every boot. That is the
+// point for a throwaway demo dir and a disaster for the from-source server's
+// own storage, so refuse the one path that is easy to type by habit.
+if (serverRoot === path.join(REPO, "packages", "server")) {
+   fail(
+      `--server_root must not be packages/server (this script starts the server with --init, which wipes <server_root>/publisher_data). Use the default (demo/.run) or another directory.`,
+   );
+}
+fs.mkdirSync(serverRoot, { recursive: true });
+// npx runs from the server root, and npm walks UP from there to find "the
+// project". Inside this repo that walk reaches the workspace, whose
+// packages/server IS @malloy-publisher/server at the pinned version, so npx
+// would run the (unbuilt) workspace copy instead of installing the published
+// one. A private package.json in the server root ends the walk there.
+const boundary = path.join(serverRoot, "package.json");
+if (!fs.existsSync(boundary)) {
+   fs.writeFileSync(
+      boundary,
+      `${JSON.stringify({ name: "publisher-demo-run", private: true, description: "npm project boundary for demo.mjs; safe to delete" }, null, 2)}\n`,
+   );
+}
+
+let configPath;
+if (opts.config) {
+   configPath = path.resolve(opts.config);
+   if (!isFile(configPath)) fail(`--config: no such file: ${configPath}`);
+} else if (opts.package) {
+   configPath = writePackageConfig(path.resolve(opts.package), serverRoot);
+} else {
+   configPath = DEFAULT_CONFIG;
+   if (!isFile(configPath)) {
+      fail(`Missing ${configPath}. Run this from a clone of the repo, or pass --package <dir> / --config <file>.`);
+   }
+}
+
+function isFile(p) {
+   try {
+      return fs.statSync(p).isFile();
+   } catch {
+      return false;
+   }
+}
+
+// A one-package config, generated under the server root so the location can
+// be absolute and the file lands somewhere git-ignored. The environment is
+// named `demo`, the package after its publisher.json.
+function writePackageConfig(packageDir, root) {
+   const manifest = path.join(packageDir, "publisher.json");
+   if (!isFile(manifest)) {
+      fail(`--package: ${packageDir} has no publisher.json (not a Malloy package directory).`);
+   }
+   let name = path.basename(packageDir);
+   try {
+      const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      if (typeof parsed.name === "string" && parsed.name.trim()) name = parsed.name.trim();
+   } catch (error) {
+      fail(`--package: cannot read ${manifest}: ${error.message}`);
+   }
+   const config = {
+      frozenConfig: false,
+      environments: [
+         {
+            name: "demo",
+            packages: [{ name, location: packageDir.split(path.sep).join("/") }],
+            connections: [],
+         },
+      ],
+   };
+   const target = path.join(root, "publisher.config.json");
+   fs.writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`);
+   return target;
+}
+
+// First environment / first package in the config: what the printed URLs and
+// the browser point at.
+function firstPackage(file) {
+   try {
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      const env = parsed.environments?.[0];
+      const pkg = env?.packages?.[0];
+      if (env?.name && pkg?.name) return { environment: env.name, package: pkg.name };
+   } catch {
+      // A config the server cannot read fails loudly below (PUBLISHER_INIT_FAILED).
+   }
+   return null;
+}
+const first = firstPackage(configPath);
+
+// ---------------------------------------------------------------------------
+// 3. URLs
+// ---------------------------------------------------------------------------
+const urlHost =
+   opts.host === "0.0.0.0" ? "127.0.0.1"
+   : opts.host === "::" ? "[::1]"
+   : opts.host.includes(":") ? `[${opts.host}]`
+   : opts.host;
+const baseUrl = `http://${urlHost}:${opts.port}`;
+const mcpUrl = `http://${urlHost}:${opts.mcpPort}/mcp`;
+const statusUrl = `${baseUrl}/api/v0/status`;
+
+// ---------------------------------------------------------------------------
+// 4. Start the published server through npx
+// ---------------------------------------------------------------------------
+const spec = `${SERVER_PACKAGE}@${opts.latest ? "latest" : SERVER_VERSION}`;
+const serverArgs = [
+   "--config", configPath,
+   "--server_root", serverRoot,
+   "--port", opts.port,
+   "--mcp_port", opts.mcpPort,
+   "--host", opts.host,
+   "--init",
+   "--no-mcp-config",
+   ...opts.extra,
+];
+const npxArgs = ["--yes", spec, ...serverArgs];
+
+process.stdout.write(
+   `demo: ${spec} --config ${configPath} --server_root ${serverRoot} (${baseUrl}, MCP ${mcpUrl})\n` +
+      `demo: first run downloads the server (about 30 MB); the Console answers once it prints PUBLISHER_READY\n`,
+);
+
+const child = startNpx(npxArgs);
+
+// Prefer running npm's own npx-cli.js under the current node: no `.cmd` shim
+// (which Node refuses to spawn without a shell), no extra cmd.exe layer, and
+// Node quotes the arguments itself. Falls back to the `npx` on PATH.
+function startNpx(args) {
+   const env = { ...process.env };
+   // The child writes to a pipe (so this script can read PUBLISHER_* lines), and
+   // the server's logger drops colors for a pipe; keep them when we have a TTY.
+   if (process.stdout.isTTY && env.FORCE_COLOR === undefined) env.FORCE_COLOR = "1";
+   const common = { cwd: serverRoot, env, stdio: ["ignore", "pipe", "pipe"] };
+
+   const execDir = path.dirname(process.execPath);
+   const npxCli = [
+      path.join(execDir, "node_modules", "npm", "bin", "npx-cli.js"),
+      path.join(execDir, "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"),
+   ].find(isFile);
+   if (npxCli) {
+      return spawn(process.execPath, [npxCli, ...args], common);
+   }
+   if (process.platform === "win32") {
+      for (const a of args) {
+         if (a.includes('"')) fail(`Cannot pass an argument containing a double quote through cmd.exe: ${a}`);
+      }
+      const quoted = args.map((a) => (/[\s&|<>^()]/.test(a) ? `"${a}"` : a));
+      return spawn("npx.cmd", quoted, { ...common, shell: true });
+   }
+   return spawn("npx", args, common);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Stream output through, watching for the server's machine-readable lines
+// ---------------------------------------------------------------------------
+let serving = false;
+let stopping = false;
+let childExited = false;
+
+function relay(stream, sink) {
+   let pending = "";
+   stream.on("data", (chunk) => {
+      sink.write(chunk);
+      pending += chunk.toString();
+      let nl;
+      while ((nl = pending.indexOf("\n")) !== -1) {
+         onServerLine(pending.slice(0, nl));
+         pending = pending.slice(nl + 1);
+      }
+   });
+}
+relay(child.stdout, process.stdout);
+relay(child.stderr, process.stderr);
+
+function onServerLine(line) {
+   if (line.includes("PUBLISHER_INIT_FAILED")) {
+      // The server stays up (listening, not serving) after this; for a demo
+      // that is a hang, so stop it and report.
+      process.stderr.write(`demo: the server could not load its configuration (see the PUBLISHER_INIT_FAILED line above). Config: ${configPath}\n`);
+      stop("SIGTERM", 1);
+   } else if (line.includes("PUBLISHER_UNSUPPORTED_NODE")) {
+      process.stderr.write(`demo: the server refused this Node (${process.versions.node}); it needs >= ${NODE_MAJOR_REQUIRED}.\n`);
+   }
+}
+
+child.on("error", (error) => {
+   process.stderr.write(`demo: could not start npx: ${error.message}\nIs npm installed next to node? (\`npx --version\` should print a version.)\n`);
+   process.exit(1);
+});
+
+let exitCodeOverride = null;
+child.on("exit", (code, signal) => {
+   childExited = true;
+   if (exitCodeOverride !== null) process.exit(exitCodeOverride);
+   if (!serving && !stopping) {
+      process.stderr.write(`demo: the server exited before it was serving (code=${code ?? "null"} signal=${signal ?? "none"}).\n`);
+   }
+   process.exit(code ?? (stopping ? 0 : 1));
+});
+
+// ---------------------------------------------------------------------------
+// 6. Stop cleanly: forward the signal, wait, force after a grace period
+// ---------------------------------------------------------------------------
+function stop(signal, exitCode) {
+   if (stopping) return;
+   stopping = true;
+   if (exitCode !== undefined) exitCodeOverride = exitCode;
+   if (childExited) process.exit(exitCodeOverride ?? 0);
+   process.stdout.write(`\ndemo: stopping the server (${signal})...\n`);
+   try {
+      // POSIX: npx forwards SIGINT/SIGTERM to the server it spawned.
+      // Windows: a console Ctrl-C already reached every process on this
+      // console; kill() here is a plain terminate of npx, so the tree kill
+      // below is what actually stops the server if it did not get the event.
+      if (process.platform !== "win32") child.kill(signal);
+   } catch {
+      // Already gone.
+   }
+   const grace = setTimeout(() => {
+      if (childExited) return;
+      killTree(child.pid);
+   }, process.platform === "win32" ? 5000 : 10000);
+   grace.unref();
+}
+
+function killTree(pid) {
+   try {
+      if (process.platform === "win32") {
+         spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+         child.kill("SIGKILL");
+      }
+   } catch {
+      // Nothing left to kill.
+   }
+}
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+   process.on(signal, () => stop(signal));
+}
+
+// ---------------------------------------------------------------------------
+// 7. Wait for `serving`, then print the URLs and open the dashboard
+// ---------------------------------------------------------------------------
+async function fetchJson(url) {
+   const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+   if (!response.ok) throw new Error(`HTTP ${response.status}`);
+   return response.json();
+}
+
+async function waitUntilServing() {
+   const started = Date.now();
+   let reminded = false;
+   while (!childExited && !stopping) {
+      try {
+         const status = await fetchJson(statusUrl);
+         if (status.operationalState === "serving") return status;
+      } catch {
+         // Not listening yet (npx still downloading) or still initializing.
+      }
+      if (!reminded && Date.now() - started > 60_000) {
+         reminded = true;
+         process.stdout.write(`demo: still starting (a first run downloads and unpacks the server; give it a minute or two)\n`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+   }
+   return null;
+}
+
+async function firstDashboard() {
+   if (!first) return null;
+   try {
+      const list = await fetchJson(
+         `${baseUrl}/api/v0/environments/${encodeURIComponent(first.environment)}/packages/${encodeURIComponent(first.package)}/dashboards`,
+      );
+      const name = Array.isArray(list) ? list.find((d) => d && typeof d.name === "string")?.name : undefined;
+      return name ? `${baseUrl}/${first.environment}/${first.package}/dashboards/${name}` : null;
+   } catch {
+      return null;
+   }
+}
+
+function openInBrowser(url) {
+   try {
+      const [command, args] =
+         process.platform === "win32" ? ["cmd.exe", ["/d", "/c", "start", "", url]]
+         : process.platform === "darwin" ? ["open", [url]]
+         : ["xdg-open", [url]];
+      const opener = spawn(command, args, { stdio: "ignore", detached: true });
+      opener.on("error", () => {});
+      opener.unref();
+   } catch {
+      // No browser is not an error; the URLs are printed.
+   }
+}
+
+const status = await waitUntilServing();
+if (status) {
+   serving = true;
+   const loadErrors = Array.isArray(status.loadErrors) ? status.loadErrors.length : 0;
+   const packages = (status.environments ?? []).flatMap((e) =>
+      (e.packages ?? []).map((p) => `${e.name}/${p.name ?? p}`),
+   );
+   const packageUrl = first ? `${baseUrl}/${first.environment}/${first.package}` : null;
+   const dashboardUrl = await firstDashboard();
+   const lines = [
+      ``,
+      `demo: serving${packages.length ? ` ${packages.join(", ")}` : ""} (load_errors=${loadErrors})`,
+      `  Console:    ${baseUrl}`,
+      ...(packageUrl ? [`  Package:    ${packageUrl}`] : []),
+      ...(dashboardUrl ? [`  Dashboard:  ${dashboardUrl}`] : []),
+      `  MCP:        ${mcpUrl}`,
+      `  Status:     ${statusUrl}`,
+      `Press Ctrl-C to stop.`,
+      ``,
+   ];
+   process.stdout.write(lines.join("\n"));
+   if (loadErrors > 0) {
+      process.stderr.write(`demo: ${loadErrors} package(s) failed to load or are stale; see loadErrors on ${statusUrl}\n`);
+   }
+   if (opts.open) openInBrowser(dashboardUrl ?? packageUrl ?? baseUrl);
+}
