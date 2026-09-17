@@ -121,7 +121,7 @@ jobs:
           set -euo pipefail
           docker pull "$IMAGE"
           docker run -d --name publisher-smoke \
-            -p 4000:4000 -p 4040:4040 \
+            -p 127.0.0.1:4000:4000 -p 127.0.0.1:4040:4040 \
             -v "$PWD/examples:/publisher/examples:ro" \
             -v "$PWD/.github/ci:/publisher/.github/ci:ro" \
             "$IMAGE" \

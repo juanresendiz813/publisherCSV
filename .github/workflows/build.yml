@@ -439,7 +439,7 @@ jobs:
       - name: Start container
         run: |
           docker run -d --name malloy-publisher-smoke \
-            -p 4000:4000 \
+            -p 127.0.0.1:4000:4000 \
             malloy-publisher:smoke-test
           echo "Container ID: $(docker ps -q -f name=malloy-publisher-smoke)"
       - name: Wait for server to reach 'serving' state
