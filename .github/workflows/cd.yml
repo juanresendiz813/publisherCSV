@@ -1,0 +1,155 @@
+# SPDX-License-Identifier: MIT
+#
+# CD: build the root Dockerfile and publish it to this repository's GHCR
+# namespace, then smoke the pushed image with the demo config.
+#
+# AUTHORITY: pushing a `v*` tag is an operator action (releases/publishes need
+# operator GO — see the authority map). Never triggered by a plain push.
+#
+#   push tags v*        -> ghcr.io/<owner>/<repo>:<tag>  and  :latest
+#                          (:latest withheld for prereleases, i.e. tags with a '-')
+#   workflow_dispatch   -> a rehearsal: ghcr.io/<owner>/<repo>:sha-<short> only,
+#                          never :latest, never a version tag
+#
+# The image is single-arch (linux/amd64). The Dockerfile pins per-arch ADBC
+# driver digests (Dockerfile:60-61) so arm64 would build on an arm runner, but
+# multi-arch is off until someone needs it.
+#
+# The smoke job runs the pushed image by digest. examples/ and .github/ are
+# excluded from the image by .dockerignore, so the demo config and packages are
+# bind-mounted into /publisher and the CMD is repeated with --config.
+name: cd
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: build + push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR names are lowercase; metadata-action lowercases the image and
+      # also emits org.opencontainers.image.source for THIS repo, overriding
+      # the upstream URL baked into the Dockerfile's LABEL.
+      - name: Image name
+        id: name
+        run: echo "image=$(echo "${REGISTRY}/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: meta
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      # The DuckDB CLI baked into the image must match the engine bun.lock
+      # resolves; scripts/duckdb-version.js is the single source of truth.
+      - name: Resolve DuckDB version
+        id: duckdb
+        run: echo "version=$(node scripts/duckdb-version.js)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            DUCKDB_VERSION=${{ steps.duckdb.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  smoke:
+    name: smoke the pushed image
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run the image with the demo config mounted
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker run -d --name publisher-smoke \
+            -p 4000:4000 -p 4040:4040 \
+            -v "$PWD/examples:/publisher/examples:ro" \
+            -v "$PWD/.github/ci:/publisher/.github/ci:ro" \
+            "$IMAGE" \
+            bun run ./packages/server/dist/server.mjs \
+              --server_root /publisher \
+              --config /publisher/.github/ci/publisher.config.json \
+              --init
+          docker ps --filter name=publisher-smoke
+
+      - name: Assert the demo package is served
+        env:
+          SMOKE_MODE: attach
+          SMOKE_BASE: http://127.0.0.1:4000
+          SMOKE_READY_TIMEOUT: "240"
+        run: bash .github/ci/smoke.sh
+
+      - name: Container logs
+        if: always()
+        run: docker logs publisher-smoke > "${RUNNER_TEMP}/publisher-container.log" 2>&1 || true
+
+      - name: Upload container log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cd-smoke-container-log
+          path: ${{ runner.temp }}/publisher-container.log
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f publisher-smoke || true
