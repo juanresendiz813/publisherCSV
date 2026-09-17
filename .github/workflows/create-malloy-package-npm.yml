@@ -53,7 +53,8 @@ jobs:
   # dispatch-only, so there was no PR job to add it to.
   check_version:
     name: Require a version bump when the published content changes
-    if: github.event_name == 'pull_request'
+    # upstream-only: version check against upstream's npm scope; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # This job only asks a registry two questions. Every call it makes is
     # --max-time bounded, but a bound per call is not a bound on the job, and
@@ -312,7 +313,8 @@ jobs:
     # `check_version` above is new PR work. `publish` needs this job, and a
     # skipped `needs` skips the dependent, which is correct here: `publish`
     # carries the same dispatch guard.
-    if: github.event_name == 'workflow_dispatch'
+    # upstream-only: packs against upstream's npm scope; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -510,7 +512,8 @@ jobs:
     # whose copy of this file drops the line. CONTEXT.md says what would
     # actually be one, and the ordering that has to be respected if anyone
     # adds it.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # upstream-only: publishes @malloy-publisher/create-malloy-package to npm; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: check_pack
     runs-on: ubuntu-latest
     permissions:

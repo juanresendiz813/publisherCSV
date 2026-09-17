@@ -1,0 +1,24 @@
+# Fingerprints of gitleaks findings that are NOT secrets.
+#
+# Every entry below is a `commit:file:rule:line` fingerprint, so it silences
+# exactly one match on exactly one line of exactly one commit. Eight are
+# `-----BEGIN ... PRIVATE KEY-----` marker strings inside tests and the
+# connection-config detection regexes; the ninth is prose in a review rubric
+# that the generic-api-key rule matches on the word "access". None of them is
+# a credential; all nine are inherited from upstream history.
+#
+# Deliberately NOT a path or rule allowlist: a real key committed to any of
+# these files, or to any other file, still fails the scan.
+#
+# Reviewed and reproduced with gitleaks 8.24.3 over the full history
+# (1324 commits) on 2026-09-17.
+
+d3ccdd2e4ea4b900d072fd51a0fd83dd9627e6d6:packages/server/src/service/connection_federation.spec.ts:private-key:88
+d3ccdd2e4ea4b900d072fd51a0fd83dd9627e6d6:packages/server/src/service/connection_federation.spec.ts:private-key:121
+8e7a18a8a8ab1a645a136dcb9f68d8bb918ef4e2:skills/malloy-review/reference/rubric-correctness.md:generic-api-key:114
+7077123ea68a477c4e2686604ff67db7d89fbe7d:packages/server/src/logger.spec.ts:private-key:10
+7d2144a1c204651ac61316f9f0f27a82d65c6eab:skills/malloy-review/reference/rubric-correctness.md:generic-api-key:114
+9b5455918ff7bad1d9cad0fee05c4d4e793a7130:packages/server/src/service/connection_config.spec.ts:private-key:144
+9b5455918ff7bad1d9cad0fee05c4d4e793a7130:packages/server/src/service/connection_config.spec.ts:private-key:158
+47c52dea965b77273180035705ba5f4a0bf7bff8:packages/server/src/service/connection_config.ts:private-key:42
+b5b83d904eef9a29b1ed41c417bc2701b4db0047:packages/server/src/service/connection.ts:private-key:155

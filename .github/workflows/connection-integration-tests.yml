@@ -68,9 +68,11 @@ jobs:
     # a confusing red CI for an external contributor whose change had
     # nothing to do with credentials. Push to main and same-repo PRs
     # still run normally; workflow_dispatch bypasses the gate.
+    # upstream-only: needs BQ_PRESTO_TRINO_KEY / BIGQUERY_PUBLIC_DATA_SA (upstream secrets); disabled in this fork
     if: >-
-      github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository
+      github.repository == 'malloydata/publisher' &&
+      (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
 
     services:
       postgres:

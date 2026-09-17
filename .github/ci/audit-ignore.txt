@@ -1,0 +1,12 @@
+# Reviewed advisories that sec.yml's dependency-audit GATE ignores.
+# One GHSA id per line, then a note: package — path — why — reviewed date.
+# Every entry here is a critical advisory in a PRODUCTION dependency inherited
+# from upstream (measured 2026-09-16 with `bun audit --prod --audit-level=critical`
+# on the lockfile at development e4e87b8b: 6 advisories, all transitive).
+# Remove a line as soon as `bun audit fix` or a Malloy bump clears it; the gate
+# then blocks any regression. Anything NOT listed here fails the gate.
+GHSA-5rq4-664w-9x2c  basic-ftp — @databricks/sql > proxy-agent > get-uri; @openapitools/openapi-generator-cli — path traversal in downloadToDir(), a code path Publisher never calls — reviewed 2026-09-16
+GHSA-m7jm-9gc2-mpf2  fast-xml-parser 4.5.3/5.2.5 — @google-cloud/storage, @azure/storage-blob, snowflake-sdk, @aws-sdk/client-s3 — DOCTYPE entity bypass; waits on the cloud SDK bumps — reviewed 2026-09-16
+GHSA-2w6w-674q-4c4q  handlebars 4.7.8 — direct server dependency — JS injection via AST type confusion; needs a handlebars release > 4.7.8 — reviewed 2026-09-16
+GHSA-xq3m-2v4x-88gg  protobufjs 7.5.4 — @opentelemetry/sdk-node > otlp-transformer — fixed in 7.5.5, waits on the OTel bump — reviewed 2026-09-16
+GHSA-r275-fr43-pm7q  simple-git 3.28.0 — direct server dependency — blockUnsafeOperationsPlugin bypass; fixed in 3.32.3 — reviewed 2026-09-16
