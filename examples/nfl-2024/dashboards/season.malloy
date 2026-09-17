@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: MIT
+
+// The season dashboard: `## artifact { tiles=[…] }` at model level, one tile
+// per named view, laid out on the 12-column grid. The filter controls are
+// declared here and each tile says which of them it reads, which is the form
+// Publisher's dashboard builder edits.
+##! experimental.givens
+
+##" The 2024 NFL season from three raw CSVs. Pick a **Team** to turn the
+##" league-wide page into that team's season; pick a **Division** to compare
+##" rivals; switch **Season phase** to see the playoffs on their own.
+##"
+##" **Key figures** is the summary. The weekly line shows scoring trending
+##" through the year, the home/away bars show the size of home advantage, and
+##" the standings table is the record behind both.
+## artifact { title="2024 NFL season" tiles=["season -> kpis", "season -> weekly_scoring", "season -> home_away_chart", "season -> standings_table", "season -> win_chart", "season -> game_log_table"] } dashboard { columns=12 }
+
+import {
+  team_games,
+  team_suggest,
+  division_suggest,
+  phase_suggest
+} from "../nfl.malloy"
+
+// The controls. Declaration order is control order.
+# description="Narrow to one team. Leave empty for the whole league"
+# label="Team" control=select suggest { query=team_suggest dimension=team_name }
+given: TEAM :: filter<string> is f''
+
+# description="Narrow to one division, e.g. NFC West. Leave empty for all"
+# label="Division" control=select suggest { query=division_suggest dimension=division }
+given: DIVISION :: filter<string> is f''
+
+# description="Regular season, playoffs, or both"
+# label="Season phase" control=select suggest { query=phase_suggest dimension=phase }
+given: PHASE :: filter<string> is f''
+
+// Each tile is a model view plus its bindings: one `where:` per control it
+// answers to. Every tile answers to all three, so a control moves the whole page.
+#(doc) The season dashboard's tiles, each over the team-games its controls select
+source: season is team_games extend {
+  # colspan=12
+  # label="Key figures"
+  # big_value
+  view: kpis is key_figures + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+
+  # colspan=6
+  # break
+  # label="Points per game by week"
+  view: weekly_scoring is scoring_by_week + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+
+  // Not `home_away`: that is a dimension on the source, and a view cannot
+  // share a name with a field it extends.
+  # colspan=6
+  # label="Win % at home vs away"
+  view: home_away_chart is home_vs_away + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+
+  // Regular season and playoffs count together until the Season phase
+  // control says otherwise, so the Eagles open at 18-3, not 14-3. The subtitle
+  // says so on the page; it is the one line of prose a tile gets.
+  # colspan=12
+  # break
+  # label="Standings"
+  # subtitle="Every game the controls select, playoffs included. Set Season phase to Regular season for the table you know"
+  view: standings_table is standings + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+
+  # colspan=6
+  # break
+  # label="Wins"
+  view: win_chart is wins_by_team + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+
+  // Not `games`: that is the join on the source, and a view cannot share a
+  // name with a field it extends.
+  // The tile that changes most under a Team filter: the league schedule
+  // becomes one team's season, one row per game.
+  # colspan=6
+  # label="Game log"
+  view: game_log_table is game_log + { where: team_name ~ $TEAM, where: division ~ $DIVISION, where: phase ~ $PHASE }
+}
