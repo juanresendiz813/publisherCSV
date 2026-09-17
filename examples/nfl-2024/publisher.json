@@ -1,0 +1,5 @@
+{
+  "name": "nfl-2024",
+  "version": "1.0.0",
+  "description": "The 2024 NFL season from three raw CSVs — a team-game box score joined to games and a team lookup, with standings, weekly scoring and a home/away split. No ETL: DuckDB reads the CSVs in place."
+}

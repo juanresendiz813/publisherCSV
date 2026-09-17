@@ -15,6 +15,10 @@
         {
           "name": "html-data-app",
           "location": "../../examples/html-data-app"
+        },
+        {
+          "name": "nfl-2024",
+          "location": "../../examples/nfl-2024"
         }
       ],
       "connections": []

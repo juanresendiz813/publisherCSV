@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: MIT
+
+// nfl-2024 — the 2024 NFL season, straight from CSV.
+//
+// Three files from the nflverse open-data project, read in place by DuckDB
+// (no load step, no conversion, no credentials):
+//
+//   data/team_week_2024.csv  one row per TEAM per GAME: that team's box score
+//                            (passing / rushing yards, turnovers, sacks, …)
+//   data/games_2024.csv      one row per GAME: kickoff, venue, both scores
+//   data/teams.csv           one row per franchise: name, conference, division
+//
+// The team-game file has yards but no points, and the games file has points
+// but one row per game rather than per team. Joining them and deciding, per
+// row, whether this team was the home side is the whole model: every measure
+// below (wins, points for / against, differential, home-vs-away) falls out of
+// that one `pick`.
+
+// One palette for every chart in the package.
+## theme.palette.series = ["#013369", "#d50a0a", "#4f46e5", "#10b981", "#f59e0b", "#06b6d4"]
+
+#(doc) NFL franchises — full name, conference and division. One row per team, keyed by the abbreviation the other files use
+source: teams is duckdb.table('data/teams.csv') extend {
+  primary_key: team_abbr
+  #(doc) Distinct teams
+  measure: team_count is count()
+}
+
+#(doc) Every 2024 game, regular season and playoffs — one row per game with kickoff, venue and both final scores
+source: games is duckdb.table('data/games_2024.csv') extend {
+  primary_key: game_id
+  #(doc) Distinct games
+  measure: game_count is count()
+}
+
+#(doc) The fact table: one row per team per game — that team's box score, joined to the game for the score and to the team lookup for names
+source: team_games is duckdb.table('data/team_week_2024.csv') extend {
+
+  join_one:
+    #(doc) The game this row describes: date, venue, and both final scores
+    games with game_id
+    #(doc) This team's name, conference and division
+    teams with team
+    #(doc) The opponent's name, conference and division
+    opponent is teams with opponent_team
+
+  dimension:
+    // The one decision the model turns on: was this team the home side?
+    // Points for / against, the result, and the home/away split all read it.
+    #(doc) Whether this team hosted the game
+    # label="Home / Away"
+    home_away is pick 'Home' when games.home_team = team else 'Away'
+
+    #(doc) Points this team scored in the game
+    # label="Points for"
+    points_for is pick games.home_score when games.home_team = team else games.away_score
+
+    #(doc) Points the opponent scored
+    # label="Points against"
+    points_against is pick games.away_score when games.home_team = team else games.home_score
+
+    #(doc) Points for minus points against
+    # label="Point differential"
+    point_diff is points_for - points_against
+
+    #(doc) Win, Loss or Tie from this team's point of view
+    # label="Result"
+    result is pick 'Win' when points_for > points_against
+              pick 'Loss' when points_for < points_against
+              else 'Tie'
+
+    #(doc) Regular season or playoffs
+    # label="Season phase"
+    phase is pick 'Regular season' when season_type = 'REG' else 'Playoffs'
+
+    // Named over the joins so a view groups by `team_name`, not `teams.team_name`.
+    #(doc) Full team name
+    # label="Team"
+    team_name is teams.team_name
+    #(doc) AFC or NFC
+    # label="Conference"
+    conference is teams.team_conf
+    #(doc) Division, e.g. NFC West
+    # label="Division"
+    division is teams.team_division
+    #(doc) Full opponent name
+    # label="Opponent"
+    opponent_name is opponent.team_name
+
+    #(doc) Passing plus rushing yards
+    # label="Total yards"
+    total_yards is passing_yards + rushing_yards
+    #(doc) Interceptions thrown plus fumbles lost
+    # label="Turnovers"
+    turnovers is passing_interceptions + fumbles_lost_total
+    #(doc) Calendar date of the game
+    # label="Game date"
+    game_date is games.gameday
+    // `week` is a reserved word in Malloy, so the column is quoted once here
+    // and every view groups by the named dimension.
+    #(doc) Week of the season (1–18 regular season, 19–22 playoffs)
+    # number=id
+    # label="Week"
+    week_number is `week`
+
+  measure:
+    // `count(game_id)` is a distinct count, so league-wide it is games, not
+    // team-games, and per team it is that team's schedule length.
+    #(doc) Distinct games
+    # label="Games"
+    games_played is count(game_id)
+    #(doc) Games won
+    # label="Wins"
+    wins is count() { where: points_for > points_against }
+    #(doc) Games lost
+    # label="Losses"
+    losses is count() { where: points_for < points_against }
+    #(doc) Games tied
+    # label="Ties"
+    ties is count() { where: points_for = points_against }
+    #(doc) Wins as a share of games
+    # percent
+    # label="Win %"
+    win_pct is wins / nullif(games_played, 0)
+
+    #(doc) Total points scored
+    # label="Points scored"
+    total_points_for is points_for.sum()
+    #(doc) Total points allowed
+    # label="Points allowed"
+    total_points_against is points_against.sum()
+    #(doc) Total point differential
+    # label="Point diff"
+    total_point_diff is point_diff.sum()
+    #(doc) Points scored per game
+    # number="#,##0.0"
+    # label="Points / game"
+    avg_points_for is points_for.avg()
+    #(doc) Points allowed per game
+    # number="#,##0.0"
+    # label="Allowed / game"
+    avg_points_against is points_against.avg()
+    #(doc) Most points scored in a single game
+    # label="Top score"
+    high_score is points_for.max()
+
+    #(doc) Total yards, summed
+    # label="Total yards"
+    total_yards_sum is total_yards.sum()
+    #(doc) Yards per game
+    # number="#,##0.0"
+    # label="Yards / game"
+    avg_yards is total_yards.avg()
+    #(doc) Passing yards per game
+    # number="#,##0.0"
+    # label="Pass yds / game"
+    avg_passing_yards is passing_yards.avg()
+    #(doc) Rushing yards per game
+    # number="#,##0.0"
+    # label="Rush yds / game"
+    avg_rushing_yards is rushing_yards.avg()
+    #(doc) Turnovers, summed
+    # label="Turnovers"
+    total_turnovers is turnovers.sum()
+    #(doc) Defensive sacks, summed
+    # number="#,##0.0"
+    # label="Sacks"
+    total_sacks is def_sacks.sum()
+
+  // ── Views: one idea each, chart tag on the view ───────────────────────
+
+  #(doc) Standings: record, points for and against, and differential
+  view: standings is {
+    group_by: team_name, division
+    aggregate: wins, losses, ties, win_pct, total_points_for, total_points_against, total_point_diff
+    order_by: wins desc, total_point_diff desc
+  }
+
+  #(doc) Wins by team, most first
+  # bar_chart
+  view: wins_by_team is {
+    group_by: team_name
+    aggregate: wins
+    order_by: wins desc
+  }
+
+  // Points per game and the week's top score. League-wide, points for and
+  // against are the same number by definition, which is why the second line
+  // is the high score rather than points allowed.
+  #(doc) Points per game and the top single-game score, week by week
+  # line_chart
+  view: scoring_by_week is {
+    group_by: week_number
+    aggregate: avg_points_for, high_score
+    order_by: week_number
+  }
+
+  #(doc) Win rate at home versus on the road
+  # bar_chart
+  view: home_vs_away is {
+    group_by: home_away
+    aggregate: win_pct
+    order_by: home_away
+  }
+
+  #(doc) Home versus away in full: record, scoring and yards
+  view: home_away_split is {
+    group_by: home_away
+    aggregate: games_played, wins, losses, win_pct, avg_points_for, avg_points_against, avg_yards
+    order_by: home_away
+  }
+
+  // One row per team-game. League-wide it is the schedule; under a Team
+  // filter it is that team's season, game by game, bye week and all.
+  #(doc) Every game from each team's side: week, opponent, venue, result and score
+  view: game_log is {
+    group_by: week_number, game_date, team_name, opponent_name, home_away, result, points_for, points_against, total_yards
+    order_by: week_number, game_date, team_name
+  }
+
+  #(doc) Offense leaders: yards per game
+  # bar_chart
+  view: offense_leaders is {
+    top: 10
+    group_by: team_name
+    aggregate: avg_yards
+    order_by: avg_yards desc
+  }
+
+  #(doc) Standings grouped by division
+  view: division_standings is {
+    group_by: division
+    nest: standings
+  }
+
+  // A view of nothing but measures IS a KPI row once a dashboard tile names it
+  // with `# big_value`. Labels and formats come from the measures themselves.
+  #(doc) Games, points, points per game, yards per game and turnovers
+  view: key_figures is {
+    aggregate: games_played, total_points_for, avg_points_for, avg_yards, total_turnovers
+  }
+
+  // The one-query form of the same page, for a notebook cell or the model
+  // page. dashboards/season.malloy is the filterable tile form.
+  #(doc) Season overview: KPIs, weekly scoring, home/away, standings
+  # dashboard { columns=2 }
+  view: season_overview is {
+    nest:
+      # colspan=2
+      # big_value
+      kpis is {
+        aggregate: games_played, total_points_for, avg_points_for, avg_yards
+      }
+    nest:
+      scoring_by_week
+      home_vs_away
+      wins_by_team
+      standings
+  }
+}
+
+// Option lists for the dashboard's filter controls. A `suggest { query= }`
+// runs one of these and offers the column named by `dimension=`.
+#(doc) Distinct team names, for the Team control
+query: team_suggest is team_games -> {
+  group_by: team_name
+  order_by: team_name
+}
+
+#(doc) Distinct divisions, for the Division control
+query: division_suggest is team_games -> {
+  group_by: division
+  order_by: division
+}
+
+#(doc) Regular season or playoffs, for the Season phase control
+query: phase_suggest is team_games -> {
+  group_by: phase
+  order_by: phase
+}
