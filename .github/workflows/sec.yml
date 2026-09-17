@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: MIT
+#
+# SEC gate. Secret scan over the full history, CodeQL, a dependency audit and
+# a lint of the workflows themselves. Least privilege per job; every
+# third-party action is pinned to a commit SHA.
+#
+# Jobs
+#   gitleaks          gitleaks/gitleaks-action over fetch-depth 0. A personal
+#                     account needs no license; an ORG repo needs the free
+#                     GITLEAKS_LICENSE secret (gitleaks.io) or the job fails.
+#   codeql            javascript-typescript + python (49 tracked .py files:
+#                     skills/*/scripts and packages/python-client). CodeQL is
+#                     free on public repos; a PRIVATE repo needs GitHub Advanced
+#                     Security — until it is enabled the job is skipped, and the
+#                     repo variable CODEQL_ON_PRIVATE=true turns it on.
+#   dependency-audit  bun audit (reads bun.lock, no install). Two steps:
+#                     a full high+ report (always, non-blocking, in the job
+#                     summary) and the GATE: no critical advisory in production
+#                     dependencies beyond the reviewed allowlist in
+#                     .github/ci/audit-ignore.txt. The tree inherits 10 critical
+#                     / 128 high advisories from upstream today, so a blocking
+#                     high+ gate would be red on day one; tighten by shrinking
+#                     the allowlist and lowering the level.
+#   actionlint        rhysd/actionlint 1.7.12, binary fetched from its GitHub
+#                     release and sha256-verified. shellcheck integration is
+#                     off for now so local and CI results match; turn it on once
+#                     the inherited workflows are clean under it.
+name: sec
+
+on:
+  pull_request:
+  push:
+    branches: [development, main]
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  codeql:
+    name: codeql (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.repository.private == false || vars.CODEQL_ON_PRIVATE == 'true'
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          category: /language:${{ matrix.language }}
+
+  dependency-audit:
+    name: dependency audit (bun audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          java: "false"
+          install: "false"
+      - name: Report (all dependencies, high and above, non-blocking)
+        run: |
+          set -o pipefail
+          {
+            echo '## bun audit --audit-level=high (report only)'
+            echo '```'
+            bun audit --audit-level=high 2>&1 | tail -n 40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Gate (production dependencies, critical, beyond the reviewed allowlist)
+        run: |
+          set -euo pipefail
+          args=()
+          while read -r id; do
+            [ -n "$id" ] && args+=("--ignore=$id")
+          done < <(grep -oE '^GHSA-[0-9A-Za-z-]+' .github/ci/audit-ignore.txt || true)
+          echo "ignoring ${#args[@]} reviewed advisories from .github/ci/audit-ignore.txt"
+          bun audit --prod --audit-level=critical "${args[@]}"
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch actionlint (pinned, sha256-verified)
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -version
+      - name: Lint workflows
+        run: ./actionlint -color -shellcheck= -pyflakes=
