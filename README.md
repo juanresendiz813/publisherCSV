@@ -27,9 +27,8 @@ Bun, no build, no `npm install`. It runs the published Publisher server through 
 waits until the server reports `serving`, prints the URLs and opens the dashboard in your browser.
 The first run downloads the server (about 30 MB, plus its dependencies): 2 min 50 s from
 `node demo.mjs` to the dashboard on a Windows 11 laptop over home Wi-Fi. Later runs skip the
-download and start from the npx cache (warm timing to be measured and added here). Works from Git
-Bash on Windows (verified); PowerShell, cmd, macOS and Linux use the same code path but are not yet
-verified.
+download and start from the npx cache: 76 s on the same machine. Works from Git Bash on Windows
+(verified); PowerShell, cmd, macOS and Linux use the same code path but are not yet verified.
 
 What you get:
 
