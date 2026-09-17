@@ -19,6 +19,8 @@ permissions:
 
 jobs:
   k6_tests:
+    # upstream-only: needs BQ_PRESTO_TRINO_KEY (upstream secret); disabled in this fork
+    if: github.repository == 'malloydata/publisher'
     name: k6 Tests
     runs-on: ubuntu-latest
     steps:

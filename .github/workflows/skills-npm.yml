@@ -36,6 +36,8 @@ env:
 
 jobs:
   check_pack:
+    # upstream-only: version check against upstream's npm scope (@malloy-publisher/skills); disabled in this fork
+    if: github.repository == 'malloydata/publisher'
     # A frozen-lockfile install, a build, the package's suite, and the registry
     # check below. Bounded for the reason its siblings are: every registry call
     # here is bounded individually, but a bound per call is not a bound on the
@@ -344,7 +346,8 @@ jobs:
     # be respected if anyone adds it. release.yml dispatches this workflow on
     # main, so the guard holds on that path too; create-malloy-package-npm.yml
     # carries the same one.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # upstream-only: publishes @malloy-publisher/skills to npm; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: check_pack
     runs-on: ubuntu-latest
     permissions:

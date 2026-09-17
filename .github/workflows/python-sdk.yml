@@ -53,7 +53,8 @@ jobs:
   # way that publish job IS reachable today (a `workflow_dispatch` on a tag ref).
   check_version:
     name: Require a version bump when the published content changes
-    if: github.event_name == 'pull_request'
+    # upstream-only: version check against PyPI's malloy-publisher-sdk; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # This job only asks a registry two questions. Every call it makes is
     # --max-time bounded, but a bound per call is not a bound on the job, and
@@ -285,7 +286,8 @@ jobs:
     # `paths` filter has no changed files to match and would filter the run out.
     # Publishing now goes the same way the other two trains go: dispatched on
     # main by publish-packages, or dispatched on main by hand.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # upstream-only: publishes malloy-publisher-sdk to PyPI with PYPI_TOKEN; disabled in this fork
+    if: github.repository == 'malloydata/publisher' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     steps:
