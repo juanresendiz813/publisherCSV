@@ -15,6 +15,45 @@ One data model, served over MCP and REST to AI agents, applications, and BI tool
 <p align="center"><sub><strong>AI agents:</strong> read <a href="AGENTS.md">AGENTS.md</a> first (raw: <code>https://raw.githubusercontent.com/malloydata/publisher/main/AGENTS.md</code>).<br>
 It covers starting the server, connecting over MCP, the bundled skills, and the package format. Fetch the raw file, not a summary of this page.</sub></p>
 
+## Try it in one line
+
+```bash
+git clone https://github.com/spiculedata/publisherCSV.git && cd publisherCSV && node demo.mjs
+```
+
+That is the whole setup. [`demo.mjs`](demo.mjs) needs **Node.js 20 or newer** and nothing else — no
+Bun, no build, no `npm install`. It runs the published Publisher server through `npx` (pinned to
+`@malloy-publisher/server@0.4.0`), points it at [`demo/publisher.config.json`](demo/publisher.config.json),
+waits until the server reports `serving`, prints the URLs and opens the dashboard in your browser.
+The first run downloads the server (about 30 MB, plus its dependencies): 2 min 50 s from
+`node demo.mjs` to the dashboard on a Windows 11 laptop over home Wi-Fi. Later runs skip the
+download and start from the npx cache (warm timing to be measured and added here). Works from Git
+Bash on Windows (verified); PowerShell, cmd, macOS and Linux use the same code path but are not yet
+verified.
+
+What you get:
+
+- [`examples/nfl-2024`](examples/nfl-2024) — the 2024 NFL season served straight from three CSVs,
+  with its filterable dashboard at <http://127.0.0.1:4000/examples/nfl-2024/dashboards/season>
+  (Team, Division and Season-phase controls; every tile answers to every control);
+- upstream's `storefront` example next to it;
+- the Console at <http://127.0.0.1:4000>, the REST API under `/api/v0`, and the MCP endpoint at
+  `http://127.0.0.1:4040/mcp` for Claude, Cursor, Codex or an agent of your own.
+
+`Ctrl-C` stops everything. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` /
+`--host` (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the
+pinned version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
+git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.
+`node demo.mjs -- --watch-env examples` to live-reload model edits.
+
+**Point it at your own package.** `node demo.mjs --package /path/to/my-package` serves any directory
+that holds a `publisher.json` ([docs/packages.md](docs/packages.md) is the format) as environment
+`demo`; `node demo.mjs --config /path/to/publisher.config.json` uses a config of your own. That is how
+another project reuses this repo: keep `demo.mjs`, swap the package.
+
+Everything below is the upstream Malloy Publisher documentation. The from-source path
+(`bun install && bun run build && bun run start`) is unchanged.
+
 <p align="center">
   <a href="https://github.com/malloydata/publisher/actions/workflows/build.yml"><img src="https://github.com/malloydata/publisher/actions/workflows/build.yml/badge.svg" alt="build"></a>
 </p>
