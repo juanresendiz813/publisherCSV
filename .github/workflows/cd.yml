@@ -8,8 +8,14 @@
 #
 #   push tags v*        -> ghcr.io/<owner>/<repo>:<tag>  and  :latest
 #                          (:latest withheld for prereleases, i.e. tags with a '-')
-#   workflow_dispatch   -> a rehearsal: ghcr.io/<owner>/<repo>:sha-<short> only,
-#                          never :latest, never a version tag
+#   workflow_dispatch   -> a rehearsal: ghcr.io/<owner>/<repo>:sha-<short>.
+#                          The :<tag> and :latest rules key off the REF, not the
+#                          event, so a dispatch from a branch adds nothing else
+#                          -- but a dispatch from an existing v* tag ref also
+#                          re-applies :<tag> and :latest. That republishes the
+#                          content the tag push already pushed, so it is
+#                          harmless; dispatch from a branch when you want the
+#                          sha- tag and nothing more.
 #
 # The image is single-arch (linux/amd64). The Dockerfile pins per-arch ADBC
 # driver digests (Dockerfile:60-61) so arm64 would build on an arm runner, but

@@ -58,6 +58,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
           GITLEAKS_ENABLE_COMMENTS: "false"
+          # Same version the action would pick on its own at this SHA
+          # (src/index.js:138 defaults to 8.24.3) — stated here so the pin is
+          # visible in our file instead of only inside the action's source, and
+          # so an action bump cannot move the scanner without us noticing. The
+          # nine fingerprints in the root .gitleaksignore were produced by this
+          # exact version.
+          GITLEAKS_VERSION: "8.24.3"
 
   codeql:
     name: codeql (${{ matrix.language }})
