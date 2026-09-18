@@ -51,12 +51,12 @@ outside the clone to skip that — same config, same packages, 8 s instead of 59
 ## What you get
 
 [`examples/nfl-2024`](examples/nfl-2024) is the 2024 NFL season served straight from three
-[nflverse](https://github.com/nflverse) CSVs — 285 games, 570 team-games, 36 franchises. DuckDB
-reads them in place, one Malloy model joins them, and Publisher renders **10 views** and a
-**6-tile dashboard** with Team, Division and Season-phase controls; every tile answers to every
-control, and the choice lands in the URL, so a filtered view is a link. The numbers it lands on:
-the Eagles at 18-3 including the playoffs, home teams winning 54.7% of games, 23.0 points per team
-per game.
+[nflverse](https://github.com/nflverse) CSVs — 285 games, 570 team-games, and 32 franchises (36 team
+rows: four are legacy aliases for relocated or renamed clubs). DuckDB reads them in place, one
+Malloy model joins them, and Publisher renders **10 views** and a **6-tile dashboard** with Team,
+Division and Season-phase controls; every tile answers to every control, and the choice lands in
+the URL, so a filtered view is a link. The numbers it lands on: the Eagles at 18-3 including the
+playoffs, home teams winning 54.7% of games, 23.0 points per team per game.
 
 Once it is serving:
 
