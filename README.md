@@ -41,11 +41,16 @@ Linux box; macOS runs the same code path but is untested.
 `Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening — and so
 does stopping it from outside the terminal, the way a supervisor or a CI job does: `kill -INT` or
 `kill -TERM` on the runner's PID on Linux, `taskkill /pid <pid> /T /F` (a tree kill) on Windows.
-Both verified on Windows 11 and on Ubuntu 24.04 under WSL2. `kill -9` is the exception, because
-nothing can run on `SIGKILL`: it leaves the server behind, still holding both ports, and on Linux
-that orphan is in a session of its own where a second `Ctrl-C` and closing the terminal will not
-reach it. Clear it by hand — `ps -o pid,pgid,args | grep malloy-publisher` prints the pgid, then
-`kill -9 -<pgid>`. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
+Both verified on Windows 11 and on Ubuntu 24.04 under WSL2. The runner forwards the signal it was
+sent and the published server handles only `SIGTERM`, so a `SIGINT` stop frees both ports without
+logging the worker-pool drain a `kill -TERM` logs — fewer lines on the way out, not a worse stop.
+`kill -9` is the exception, because nothing can run on `SIGKILL`: it leaves the server behind, still
+holding both ports, and on Linux that orphan is in a session of its own where a second `Ctrl-C` and
+closing the terminal will not reach it. Clear it by hand:
+`ps -eo pid,pgid,args | grep malloy-publisher` prints the server's `npm exec` and `node` rows and
+the pgid they share, then `kill -9 -<pgid>` clears it. The `-e` is not optional — a plain `ps` lists
+only the processes on your own terminal, and this orphan is precisely the one that no longer has
+one. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
 (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the pinned
 version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
 git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.

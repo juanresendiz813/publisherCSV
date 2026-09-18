@@ -494,7 +494,10 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"]) {
 // it got harder, and that part IS new: `detached` calls setsid(), so the
 // orphan now sits in its own session instead of the terminal's, where neither
 // a second Ctrl-C nor closing the terminal reaches it. Recover by hand:
-// `ps -o pid,pgid,args` prints the pgid, and `kill -9 -<pgid>` clears it.
+// `ps -eo pid,pgid,args` prints the pgid, and `kill -9 -<pgid>` clears it.
+// The `-e` is what setsid() costs the recovery: a plain `ps` lists only the
+// caller's terminal, and this orphan is the one process no longer on it, so
+// the recipe without `-e` prints nothing and reads as an all-clear.
 process.on("exit", () => {
    if (process.platform === "win32") return;
    if (childExited && !orphanGroupAlive) return;
