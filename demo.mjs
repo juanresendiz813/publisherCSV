@@ -267,7 +267,17 @@ function startNpx(args) {
    // The child writes to a pipe (so this script can read PUBLISHER_* lines), and
    // the server's logger drops colors for a pipe; keep them when we have a TTY.
    if (process.stdout.isTTY && env.FORCE_COLOR === undefined) env.FORCE_COLOR = "1";
-   const common = { cwd: serverRoot, env, stdio: ["ignore", "pipe", "pipe"] };
+   // POSIX: give the child its own process group (detached calls setsid), so a
+   // stop can signal the GROUP. npx interposes at least one `sh -c` layer on
+   // Linux, and signalling the immediate child alone leaves the real server
+   // running and still holding both ports. Windows has no process groups to
+   // join and `detached` there means a new console window, so: POSIX only.
+   const common = {
+      cwd: serverRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+   };
 
    const execDir = path.dirname(process.execPath);
    const npxCli = [
@@ -344,17 +354,14 @@ function stop(signal, exitCode) {
    if (exitCode !== undefined) exitCodeOverride = exitCode;
    if (childExited) process.exit(exitCodeOverride ?? 0);
    process.stdout.write(`\ndemo: stopping the server (${signal})...\n`);
-   try {
-      // POSIX: npx forwards SIGINT/SIGTERM to the server it spawned.
-      // Windows: a console Ctrl-C already reached npx and the server on this
-      // console and both exit on their own (verified: the whole tree is gone
-      // and nothing is left listening). kill() here would only terminate npx
-      // and orphan the server, so skip it; the tree kill below covers a stop
-      // that did NOT come from the console, e.g. PUBLISHER_INIT_FAILED.
-      if (process.platform !== "win32") child.kill(signal);
-   } catch {
-      // Already gone.
-   }
+   // POSIX: signal the child's whole process group, which is what an
+   // interactive terminal's Ctrl-C does and what `child.kill()` does NOT.
+   // Windows: a console Ctrl-C already reached npx and the server on this
+   // console and both exit on their own (verified: the whole tree is gone
+   // and nothing is left listening). kill() here would only terminate npx
+   // and orphan the server, so skip it; the tree kill below covers a stop
+   // that did NOT come from the console, e.g. PUBLISHER_INIT_FAILED.
+   if (process.platform !== "win32") signalGroup(signal);
    const grace = setTimeout(() => {
       if (childExited) return;
       killTree(child.pid);
@@ -362,12 +369,30 @@ function stop(signal, exitCode) {
    grace.unref();
 }
 
+// POSIX only. A negative pid signals the process group the child leads (see
+// startNpx), reaching every shell layer npx interposes and the server itself.
+// A group that is already gone is the normal race on a second stop, not an
+// error worth printing.
+function signalGroup(signal) {
+   if (!child.pid) return;
+   try {
+      process.kill(-child.pid, signal);
+   } catch (error) {
+      if (error.code === "ESRCH") return; // already dead, or never grouped
+      try {
+         child.kill(signal); // e.g. EPERM: at least reach the child we own
+      } catch {
+         // Nothing left to kill.
+      }
+   }
+}
+
 function killTree(pid) {
    try {
       if (process.platform === "win32") {
          spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
       } else {
-         child.kill("SIGKILL");
+         signalGroup("SIGKILL");
       }
    } catch {
       // Nothing left to kill.
@@ -377,6 +402,15 @@ function killTree(pid) {
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
    process.on(signal, () => stop(signal));
 }
+
+// Belt and braces. A detached child outlives its parent, so any exit path that
+// did not already stop the server — an uncaught throw, a `fail()` after the
+// spawn, `process.exit()` from the error handler — has to take the group down
+// on its way out. One synchronous kill(2); nothing to await.
+process.on("exit", () => {
+   if (childExited || process.platform === "win32") return;
+   signalGroup("SIGKILL");
+});
 
 // ---------------------------------------------------------------------------
 // 7. Wait for `serving`, then print the URLs and open the dashboard
