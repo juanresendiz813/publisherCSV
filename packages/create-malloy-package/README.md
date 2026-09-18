@@ -104,7 +104,9 @@ curl -s -X POST \
 
 The source is named after the package, and the sample model ships the views
 `by_category`, `by_region`, `sales_by_month` and `overview`. A package seeded with
-`--data` starts with `overview` alone, since the scaffolder does not know your columns.
+`--data` from a CSV, JSON or NDJSON file gets views of its own: the scaffolder reads
+the file's columns and writes a model over them, keeping `record_count` and `overview`
+alongside. Parquet and XLSX are binary, so those start with `overview` alone.
 The model in the URL is the file inside the package. To send Malloy rather than name a
 view, swap the `-d` payload for one that carries a query and no `sourceName`:
 
@@ -351,6 +353,23 @@ npx @malloy-publisher/create-malloy-package@latest sales --data mydata.csv
   converting first; an Excel file is read as its first sheet. It seeds a new package,
   so it requires a package name: it cannot be combined with the setup-only mode above,
   and passing it without a name is an error rather than a silently ignored flag.
+- `--no-profile`: do not read the `--data` file's columns; write the minimal starter
+  model instead. By default a CSV, JSON or NDJSON file is read -- the first 4 MiB of
+  it, so a large file is sampled rather than loaded -- and its columns become typed
+  dimensions, `total_*` measures over the numeric ones that are not identifiers, and a
+  breakdown view per column with few enough distinct values to chart. The profile that
+  produced all of it is written into the model as a comment, so every guess is visible
+  and correctable. `record_count` and `overview` are still there either way.
+
+  The generated views count rows rather than charting one of the measures, on purpose:
+  which of your numbers is worth charting is the one thing the file cannot say. Swap
+  `record_count` in a view for a measure to get the chart you want.
+
+  Parquet and XLSX are binary containers and are never profiled; reading them would
+  mean a dependency the size of the rest of this package several times over. They fall
+  through to the same starter model they have always had, as does any file this tool
+  cannot parse -- an empty one, one that is not UTF-8, or one whose header it cannot
+  safely quote. None of those is an error: the package is still created.
 - `--client <claude-code|cursor>`: which agent client to wire up. Defaults to
   `claude-code`. `AGENTS.md` and the skills in `.claude/skills/` are written for every
   client; the MCP config file (`.mcp.json` for Claude Code, `.cursor/mcp.json` for
