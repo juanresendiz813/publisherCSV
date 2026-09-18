@@ -52,7 +52,9 @@ file and writes a model over what it finds: a measure for each numeric column th
 identifier, and a view breaking the data down by each column with few enough distinct values to chart.
 The profile it worked from is written into the model as a comment, so a wrong guess is visible rather
 than buried, and `--no-profile` writes the row count and `overview` alone instead. Parquet and XLSX are
-binary containers and are not read, so those still start at the row count. Either way the modelling
+binary containers and are not read, so those still start at the row count -- as does a file the
+scaffolder cannot model safely: one that is not UTF-8, one more than 1,000 columns wide, or one whose
+header carries a character Malloy would read as punctuation. Either way the modelling
 starts there, and that is the point at which pointing an agent at the workspace pays off.
 
 ## Beyond a local file

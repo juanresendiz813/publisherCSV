@@ -99,11 +99,43 @@ const TIMESTAMP_RE =
  * Anything a Malloy backtick-quoted name cannot carry, plus the replacement
  * character. A header holding U+FFFD means the file was not UTF-8 -- a Latin-1
  * export is the usual case -- and the column names we would emit are mojibake.
+ *
+ * The backslash is in this class for the same reason the backtick is, and it is
+ * the easier one to miss: Malloy's lexer treats it as an escape INSIDE a
+ * backtick-quoted identifier, so a header ending in one swallows the closing
+ * backtick and the generated model stops parsing while the scaffold still
+ * reports success. A backslash in the middle of a header is quieter and no
+ * better: a Windows-shaped header compiles and then names the column the lexer
+ * un-escaped, which is not the column in the file, so the failure moves from
+ * compile time to query time. Escaping it on the way out is the other option,
+ * and it would depend on Malloy's escape rules staying where they are; falling
+ * back to the model that names no column is the choice this module already
+ * makes everywhere else.
  */
 // eslint-disable-next-line no-control-regex
-const UNUSABLE_HEADER_RE = /[`\u0000-\u001F\u007F\uFFFD]/;
+const UNUSABLE_HEADER_RE = /[`\\\u0000-\u001F\u007F\uFFFD]/;
 
 const MAX_HEADER_LENGTH = 200;
+
+/**
+ * The most columns this tool is willing to model.
+ *
+ * Nothing about a data file bounds its width, and a machine-generated export can
+ * carry six figures of columns in well under the 4 MiB this reads. Two things go
+ * wrong at once past a few thousand. The model stops being a starting point: at
+ * 130,000 columns it is a 4.7 MB file with 130,000 dimensions, which nobody
+ * opens, let alone edits. And the per-column work in the emitter starts running
+ * into the runtime's own limits rather than anything about the data -- the
+ * argument-count ceiling on a spread is the one that bit first, and fixing that
+ * one line leaves the 4.7 MB model behind it.
+ *
+ * So a file wider than this falls back to the model that reads it without naming
+ * a column, which is correct, loads, and is where every other thing this
+ * profiler cannot do safely already lands. 1,000 is two orders of magnitude
+ * above the widest real export this was built against -- a 138-column stats file
+ * -- and still small enough that the model it produces can be read.
+ */
+const MAX_COLUMNS = 1000;
 
 /**
  * The --data formats this tool can read the columns of without a dependency.
@@ -412,8 +444,20 @@ function tableFromObjects(
          }
       }
    }
+   // Own properties only. A plain `object[key]` walks the prototype chain, so a
+   // record missing a key that happens to name an Object.prototype member --
+   // `constructor`, `toString`, `valueOf`, `hasOwnProperty` -- reads back the
+   // inherited FUNCTION instead of the absent value it actually has. That is not
+   // a hypothetical file: a key present in one record and missing from the next
+   // is the ordinary shape of a JSON export, and it took 33 bytes to turn this
+   // whole tool into a stack trace. hasOwnProperty is called off the prototype
+   // rather than the record, because the record may carry a key by that name.
    const rows = objects.map((object) =>
-      header.map((key) => jsonValueToCell(object[key])),
+      header.map((key) =>
+         Object.prototype.hasOwnProperty.call(object, key)
+            ? jsonValueToCell(object[key])
+            : null,
+      ),
    );
    return { header, rows };
 }
@@ -431,11 +475,18 @@ function jsonValueToCell(value: unknown): string | null {
    // An object or an array in a cell is a nested structure. DuckDB will read it
    // as one, but nothing this profiler infers about it would be true, so it is
    // recorded as an opaque string and types as one.
-   return JSON.stringify(value);
+   //
+   // `?? null` is not defensive padding. lib.d.ts declares this overload of
+   // JSON.stringify as returning `string`, and it is wrong: a function or an
+   // undefined value comes back `undefined`. So the declaration above is what
+   // keeps this honest -- typecheck cannot, because as far as it knows the
+   // return is already a string, which is exactly why a `=== null` test
+   // downstream let `undefined` through to a `.trim()`.
+   return JSON.stringify(value) ?? null;
 }
 
 function headerIsUsable(header: string[]): boolean {
-   if (header.length === 0) {
+   if (header.length === 0 || header.length > MAX_COLUMNS) {
       return false;
    }
    const seen = new Set<string>();

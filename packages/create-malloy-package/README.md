@@ -355,7 +355,9 @@ npx @malloy-publisher/create-malloy-package@latest sales --data mydata.csv
   and passing it without a name is an error rather than a silently ignored flag.
 - `--no-profile`: do not read the `--data` file's columns; write the minimal starter
   model instead. By default a CSV, JSON or NDJSON file is read -- the first 4 MiB of
-  it, so a large file is sampled rather than loaded -- and its columns become typed
+  it, so a large file is sampled rather than loaded, and at most 1,000 columns wide,
+  because a model with more dimensions than that is not a starting point anybody can
+  read -- and its columns become typed
   dimensions, `total_*` measures over the numeric ones that are not identifiers, and a
   breakdown view per column with few enough distinct values to chart. The profile that
   produced all of it is written into the model as a comment, so every guess is visible
@@ -368,8 +370,10 @@ npx @malloy-publisher/create-malloy-package@latest sales --data mydata.csv
   Parquet and XLSX are binary containers and are never profiled; reading them would
   mean a dependency the size of the rest of this package several times over. They fall
   through to the same starter model they have always had, as does any file this tool
-  cannot parse -- an empty one, one that is not UTF-8, or one whose header it cannot
-  safely quote. None of those is an error: the package is still created.
+  cannot parse -- an empty one, one that is not UTF-8, one wider than the column cap,
+  or one whose header it cannot safely quote (a backtick or a backslash in a column
+  name, both of which Malloy reads as punctuation rather than as a letter). None of
+  those is an error: the package is still created.
 - `--client <claude-code|cursor>`: which agent client to wire up. Defaults to
   `claude-code`. `AGENTS.md` and the skills in `.claude/skills/` are written for every
   client; the MCP config file (`.mcp.json` for Claude Code, `.cursor/mcp.json` for

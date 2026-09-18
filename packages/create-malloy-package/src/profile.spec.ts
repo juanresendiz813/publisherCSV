@@ -47,6 +47,13 @@ function column(result: Profile, name: string): Column {
    return found;
 }
 
+/**
+ * One backslash, built rather than written. A backslash in a string literal is
+ * itself an escape, so spelling these fixtures out invites the reader to
+ * miscount them -- and miscounting them is the whole bug under test.
+ */
+const BACKSLASH = String.fromCharCode(92);
+
 /** A CSV with one column and the given values under it. */
 function oneColumn(values: string[], header = "v"): Profile {
    return profile("one.csv", `${header}\n${values.join("\n")}\n`);
@@ -294,6 +301,45 @@ describe("profileDataFile: what it refuses", () => {
       ).toBeUndefined();
    });
 
+   test("a header holding a backslash is refused", () => {
+      // The backtick's quieter twin. Malloy reads a backslash as an escape
+      // INSIDE a backtick-quoted identifier, so `path\` swallows its own
+      // closing backtick and the model stops parsing -- while the scaffold
+      // reports success, because nothing downstream of the emitter compiles
+      // anything. A backslash in the middle parses and then names a column the
+      // lexer un-escaped, which is not the column in the file.
+      const b = BACKSLASH;
+      expect(
+         profileDataFile(write("trailing.csv", `path${b},n\na,1\n`)),
+      ).toBeUndefined();
+      expect(
+         profileDataFile(write("middle.csv", `domain${b}user,n\na,1\n`)),
+      ).toBeUndefined();
+      expect(
+         profileDataFile(write("drive.csv", `C:${b}Users,n\na,1\n`)),
+      ).toBeUndefined();
+      // The control: the same file with the backslash taken out profiles.
+      expect(profileDataFile(write("ok.csv", "path,n\na,1\n"))).toBeDefined();
+   });
+
+   test("a file wider than the column cap is refused", () => {
+      // A machine-generated export can carry six figures of columns in a file
+      // small enough to sit well inside the read cap -- 130,000 of them is
+      // 1.1 MB -- and the model that comes out the other side is 4.7 MB of
+      // dimensions nobody opens. The row-count model is the honest answer.
+      const wide = (n: number) => {
+         const header = Array.from({ length: n }, (_, i) => `c${i}`).join(",");
+         const row = Array.from({ length: n }, (_, i) => String(i % 7)).join(
+            ",",
+         );
+         return `${header}\n${row}\n`;
+      };
+      const atCap = profileDataFile(write("at.csv", wide(1000)));
+      expect(atCap).toBeDefined();
+      expect((atCap as Profile).columns.length).toBe(1000);
+      expect(profileDataFile(write("over.csv", wide(1001)))).toBeUndefined();
+   });
+
    test("an empty header is refused", () => {
       expect(
          profileDataFile(write("blank.csv", "a,,c\n1,2,3\n")),
@@ -343,6 +389,52 @@ describe("profileDataFile: NDJSON and JSON", () => {
    test("one unparseable NDJSON line does not condemn the file", () => {
       const result = profile("mixed.ndjson", '{"id":1}\nnot json\n{"id":2}\n');
       expect(result.rowsProfiled).toBe(2);
+   });
+
+   test("a key named after an Object.prototype member is a column, not a crash", () => {
+      // 33 bytes, and it used to take the whole tool down with
+      // `Cannot read properties of undefined (reading 'trim')` -- after the
+      // package directory and the copied data file were already on disk.
+      //
+      // The shape that does it is the ordinary shape of a JSON export: a key in
+      // one record and absent from the next. Reading the absent one with
+      // `object[key]` walked the prototype chain and returned the inherited
+      // FUNCTION, which JSON.stringify turns into `undefined` while claiming to
+      // return a string. A fixture where every record carries the key passes
+      // either way, which is why each case below omits it from the second.
+      const result = profile("proto.json", '[{"constructor":1,"a":1},{"a":2}]');
+      expect(result.columns.map((c) => c.name)).toEqual(["constructor", "a"]);
+      expect(column(result, "constructor").nulls).toBe(1);
+      expect(column(result, "constructor").distinct).toBe(1);
+      expect(column(result, "a").type).toBe("integer");
+   });
+
+   test("every inherited member name behaves the same way", () => {
+      for (const key of [
+         "constructor",
+         "toString",
+         "valueOf",
+         "hasOwnProperty",
+         "isPrototypeOf",
+         "propertyIsEnumerable",
+         "toLocaleString",
+      ]) {
+         const result = profile(
+            "each.ndjson",
+            `{${JSON.stringify(key)}:"x","a":1}\n{"a":2}\n`,
+         );
+         expect(column(result, key).nulls).toBe(1);
+         expect(column(result, key).distinct).toBe(1);
+      }
+   });
+
+   test("__proto__ is an ordinary column and pollutes nothing", () => {
+      // JSON.parse makes __proto__ an own data property rather than a setter,
+      // so unlike the names above it never threw -- and nothing here assigns
+      // through it either. Pinned so that stays true.
+      const result = profile("pp.json", '[{"__proto__":{"polluted":1},"a":1}]');
+      expect(result.columns.map((c) => c.name)).toContain("__proto__");
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
    });
 });
 

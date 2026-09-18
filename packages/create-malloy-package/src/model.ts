@@ -371,7 +371,17 @@ function pickGroupable(profile: Profile, fields: Field[]): Field[] {
  * the line you delete.
  */
 function renderProfileComment(profile: Profile, fields: Field[]): string {
-   const nameWidth = Math.max(6, ...fields.map((f) => f.column.name.length));
+   // Folded rather than spread. `Math.max(6, ...names)` passes one argument per
+   // column, and an argument list is bounded by the engine, not by this file:
+   // V8 throws RangeError past roughly 125,000 while JSC takes 200,000 without
+   // complaint. That difference is invisible here -- the suite runs under Bun
+   // and the shipped bundle runs under Node -- so the rule this line is written
+   // to follow is simply never to spread a collection whose size comes from the
+   // user's file, whatever the current limit happens to be.
+   const nameWidth = fields.reduce(
+      (width, field) => Math.max(width, field.column.name.length),
+      6,
+   );
    const rows = profile.rowsProfiled;
    const lines = [
       `// Columns read from ${profile.truncated ? "the first " : ""}${rows} row${

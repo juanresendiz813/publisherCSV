@@ -341,6 +341,38 @@ describe("renderProfiledModel: determinism", () => {
    });
 });
 
+describe("renderProfiledModel: what never reaches the emitter", () => {
+   /**
+    * One backslash, built rather than written, because a backslash in a string
+    * literal is itself an escape and miscounting them is the bug under test.
+    */
+   const BACKSLASH = String.fromCharCode(92);
+
+   test("a header ending in a backslash would break the model, so it never gets here", () => {
+      // The negative control first, and it is the point of the test: this is
+      // exactly what renderDimensions emits for such a header, and Malloy does
+      // not parse it. The backslash escapes the closing backtick, so the name
+      // runs on into the rest of the file.
+      const wouldEmit =
+         "source: shop is duckdb.table('data/orders.csv') extend {\n" +
+         `  dimension: path_ is \`path${BACKSLASH}\`\n` +
+         "  measure: record_count is count()\n" +
+         "}";
+      expect(parseProblems(wouldEmit).length).toBeGreaterThan(0);
+
+      // And the control for the control: the same model with the backslash
+      // taken out is clean, so the errors above are the backslash and nothing
+      // else about the fixture.
+      expectCompiles(wouldEmit.replace(BACKSLASH, ""));
+
+      // Which is why the profiler refuses the header and the scaffold falls
+      // back to the model that names no column.
+      const file = path.join(tmp, "orders.csv");
+      fs.writeFileSync(file, `path${BACKSLASH},n\na,1\nb,2\n`);
+      expect(profileDataFile(file)).toBeUndefined();
+   });
+});
+
 describe("renderProfiledModel: the profile comment", () => {
    test("it reports every column and the counts behind each decision", () => {
       const model = renderCsv("order_id,amount\n1,10\n2,20\n");
@@ -348,6 +380,20 @@ describe("renderProfiledModel: the profile comment", () => {
       expect(model).toContain("order_id");
       expect(model).toContain("identifier, not summed");
       expect(model).toContain("distinct");
+   });
+
+   test("the column name column is as wide as the longest name", () => {
+      // The padding this pins is cosmetic; how it is computed is not. It used
+      // to spread one argument per column into Math.max, which is bounded by
+      // the engine rather than by the file -- V8 throws past roughly 125,000
+      // arguments where JSC takes 200,000, so a suite running under Bun could
+      // not see it. The fold has no such ceiling. node_runtime.spec.ts runs the
+      // same code under Node, which is where the limit actually applied.
+      const model = render(
+         prof([col("id"), col("a_very_long_column_name_indeed")]),
+      );
+      expect(model).toContain("//   id                              string");
+      expect(model).toContain("//   a_very_long_column_name_indeed  string");
    });
 
    test("a sampled file says the counts are over a sample", () => {
