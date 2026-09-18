@@ -24,7 +24,7 @@
  * tests/e2e rather than deleting them: the run under Node is the part that
  * matters, not which suite it sits in.
  */
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -39,12 +39,25 @@ const distDir = path.join(packageRoot, "dist");
 /** The bin an npm user gets, built exactly as package.json builds it. */
 const cliBundle = path.join(distDir, "index.js");
 /**
- * The emitter on its own, so a case can call it directly instead of driving the
- * whole CLI. It is built into dist/ rather than a temp directory because
- * templates.ts resolves ../templates from the module's own location, which is
- * true of dist/ and of src/ and of nowhere else.
+ * A throwaway copy of the package layout, for the emitter bundle below.
+ *
+ * templates.ts resolves ../templates from its own module's location, so that
+ * bundle has to sit one level under a directory with a templates/ beside it.
+ * dist/ is the obvious such directory and the wrong one: `files` publishes
+ * dist/ wholesale and `prepack` builds into it without clearing it first, so
+ * anything a test leaves there is a file npm puts in the tarball. Cleaning up
+ * afterwards would not be enough either -- an interrupted or crashed run would
+ * still leave it behind -- so nothing that is not a shipped artifact is written
+ * into dist/ at all. Rebuilding the layout here, a root with dist/ and
+ * templates/ as siblings, keeps the resolution identical to an installed
+ * package, and the bundle is still the real one, built by the same command.
  */
-const modelBundle = path.join(distDir, "model.node-check.js");
+const checkRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-node-check-"));
+/**
+ * The emitter on its own, so a case can call it directly instead of driving the
+ * whole CLI.
+ */
+const modelBundle = path.join(checkRoot, "dist", "model.node-check.js");
 
 function bunBuild(entry: string, outfile: string): void {
    // process.execPath, not the string "bun": on Windows the npm-installed `bun`
@@ -117,8 +130,18 @@ function modelOf(dir: string): string {
 const BACKSLASH = String.fromCharCode(92);
 
 beforeAll(() => {
+   fs.mkdirSync(path.dirname(modelBundle), { recursive: true });
+   fs.cpSync(
+      path.join(packageRoot, "templates"),
+      path.join(checkRoot, "templates"),
+      { recursive: true },
+   );
    bunBuild("index.ts", cliBundle);
    bunBuild("model.ts", modelBundle);
+});
+
+afterAll(() => {
+   fs.rmSync(checkRoot, { recursive: true, force: true });
 });
 
 describe("the built bundle under Node", () => {
