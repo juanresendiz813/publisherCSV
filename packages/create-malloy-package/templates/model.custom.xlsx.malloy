@@ -134,11 +134,12 @@
 // (`ignore_errors = true` on read_xlsx is the other way: it keeps real types and
 // nulls the cells that do not fit.)
 //
-// Beyond that this is the same starting point as any seeded package: the
-// scaffolder does not read your columns, so it begins with a row count. Build it
-// out for your columns: group_by a column to break the count down, and define
-// measures over the numeric ones. Validate edits with compile_model and run new
-// views by name with reload_package. The malloy-modeling skill walks
+// Beyond that, this is where a spreadsheet-seeded package starts. The scaffolder
+// reads the columns of a CSV, JSON or NDJSON file and models them, but a workbook
+// is a binary container it does not open, so this one begins with a row count.
+// Build it out for your columns: group_by a column to break the count down, and
+// define measures over the numeric ones. Validate edits with compile_model and
+// run new views by name with reload_package. The malloy-modeling skill walks
 // through turning a raw table into a semantic model.
 
 source: {{sourceName}} is duckdb.table('{{dataPath}}') extend {

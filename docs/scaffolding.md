@@ -47,9 +47,13 @@ exists.
 The `--` before `--data` is required. Without it, `npm create` reads `--data` as one of its own
 options and only the filename reaches the scaffolder, as a stray argument, so it stops.
 
-A seeded package starts smaller than the sample one: the scaffolder does not read your columns, so you
-get a row count and an overview over your file, and the modelling starts there. That is the point at
-which pointing an agent at the workspace pays off.
+A seeded package starts from your own columns. The scaffolder reads the head of a CSV, JSON or NDJSON
+file and writes a model over what it finds: a measure for each numeric column that is not an
+identifier, and a view breaking the data down by each column with few enough distinct values to chart.
+The profile it worked from is written into the model as a comment, so a wrong guess is visible rather
+than buried, and `--no-profile` writes the row count and `overview` alone instead. Parquet and XLSX are
+binary containers and are not read, so those still start at the row count. Either way the modelling
+starts there, and that is the point at which pointing an agent at the workspace pays off.
 
 ## Beyond a local file
 
