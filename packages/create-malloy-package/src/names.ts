@@ -441,3 +441,39 @@ export function toMalloyIdentifier(name: string): string {
    }
    return identifier;
 }
+
+/**
+ * Turn a data file's column header into a Malloy field name.
+ *
+ * The same three rules as toMalloyIdentifier, against the same reserved table,
+ * because a column named `count` breaks a model exactly as a package named
+ * `count` does -- Malloy answers "'count' is a reserved word, so to use it as a
+ * name you must quote it". The suffix differs only because the thing being named
+ * differs: `count` as a source becomes `count_source`, `count` as a field
+ * becomes `count_field`.
+ *
+ * It also lowercases, which toMalloyIdentifier does not, and that is the one
+ * rule worth justifying. A package name is the user's own word and is echoed
+ * back to them in paths and commands, so changing its case would be rude. A
+ * column header is whatever the export tool wrote -- `Total Yards`, `ORDER_ID`,
+ * `Customer Name` -- and the generated model reads it back out in measure and
+ * view names that sit next to hand-written Malloy. `total_Total_Yards` beside
+ * `record_count` looks like a bug in the generator, because it is one.
+ *
+ * The header itself is never lost: whenever the cleaned name differs from it,
+ * the generated model declares `dimension: <clean> is \`<header>\`` and every
+ * later reference goes through that, so the file's own spelling stays quoted in
+ * exactly one place. Callers with more than one column must still de-duplicate
+ * the results -- `Total Yards` and `total_yards` both land here -- because this
+ * sees one name at a time and cannot know what else is in the file.
+ */
+export function toMalloyFieldName(header: string): string {
+   let name = header.replace(/[^A-Za-z0-9_]/g, "_").toLowerCase();
+   if (/^[0-9]/.test(name)) {
+      name = `_${name}`;
+   }
+   if (MALLOY_RESERVED.has(name)) {
+      name = `${name}_field`;
+   }
+   return name;
+}

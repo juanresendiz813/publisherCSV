@@ -26,6 +26,8 @@ interface CliOptions {
    data?: string;
    client: string;
    force?: boolean;
+   /** Commander's --no-profile: true unless the flag was passed. */
+   profile?: boolean;
 }
 
 const CLIENTS: Host[] = ["claude-code", "cursor"];
@@ -93,6 +95,7 @@ async function run(
          dataFile: resolveDataFile(cwd, options.data),
          host: asClient(options.client),
          force: Boolean(options.force),
+         profile: options.profile !== false,
       });
       process.stdout.write(formatSuccess(result));
       // Last, so it is the line still on screen, and after the success output so
@@ -724,6 +727,34 @@ export function formatSuccess(result: ScaffoldResult): string {
          ),
       );
    }
+   if (result.columnsProfiled !== undefined) {
+      // Said out loud because the model is now a guess about the user's data
+      // rather than a fixed template, and the number of columns is the cheapest
+      // way for them to notice it read the wrong thing -- a one-column count on
+      // a file they know has twelve is a delimiter problem, visible here and
+      // nowhere else until a query returns nonsense.
+      lines.push(
+         `${log.green("✓")} Read ${result.columnsProfiled} column` +
+            `${result.columnsProfiled === 1 ? "" : "s"} from ${result.dataPath}` +
+            ` and modelled them`,
+      );
+      if (result.profileTruncated) {
+         lines.push(
+            log.dim(
+               `  The file is large, so the types and counts in the model come ` +
+                  `from its first ${result.profileRowsRead} rows.`,
+            ),
+         );
+      }
+   }
+   if (result.profileSkipped === "unsupported-format") {
+      lines.push(
+         log.dim(
+            `  Columns are read from CSV, JSON and NDJSON only, so this model ` +
+               `starts with a row count. --data still copied the file in.`,
+         ),
+      );
+   }
    if (result.siblingDataFiles) {
       // --data takes exactly one file. Pointing it at a folder of related
       // exports modelled one and said nothing about the rest, so the omission
@@ -1247,6 +1278,15 @@ program
    .option(
       "--data <file>",
       "seed the package from a CSV, Parquet, JSON, NDJSON, or XLSX file",
+   )
+   // On by default, with an escape hatch, rather than off by default behind a
+   // --profile nobody would find. A scaffolder's whole job is the first run, and
+   // a flag you have to already know about cannot improve one. The escape hatch
+   // is here because the output is a guess: somebody who wants the bare source
+   // to build on by hand should not have to delete a model to get it.
+   .option(
+      "--no-profile",
+      "do not read the --data file's columns; emit the minimal starter model",
    )
    // Not --host: Publisher's own server takes `--host <address>` for the
    // interface it binds to, and the start command this tool writes now passes

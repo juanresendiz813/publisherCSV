@@ -14,6 +14,7 @@ import {
    type ScaffoldResult,
 } from "./scaffold";
 import { REQUIRED_NODE_RANGE } from "./node_version";
+import { renderTemplate } from "./templates";
 import { countSkills } from "./skills";
 import { skillsDir } from "@malloy-publisher/skills";
 
@@ -428,6 +429,96 @@ describe("scaffold: --data", () => {
       // Rendered, not left as a placeholder.
       expect(model).not.toContain("{{");
       expect(model).toContain("'data/budget.xlsx'");
+   });
+
+   test("a csv is profiled, and overview survives it", () => {
+      const src = path.join(tmp, "orders.csv");
+      fs.writeFileSync(
+         src,
+         "order_id,region,amount\n1,west,10.5\n2,east,20.25\n3,west,5\n",
+      );
+      const result = run({ name: "shop", dataFile: src });
+      expect(result.columnsProfiled).toBe(3);
+      expect(result.profileRowsRead).toBe(3);
+      expect(result.profileTruncated).toBe(false);
+      expect(result.profileSkipped).toBeUndefined();
+
+      const model = fs.readFileSync(path.join(tmp, "shop/shop.malloy"), "utf8");
+      // The two names everything downstream of a seeded package depends on.
+      expect(model).toContain("measure: record_count is count()");
+      expect(model).toContain("view: overview is {");
+      // And the columns, which is the whole point of reading the file.
+      expect(model).toContain("measure: total_amount is amount.sum()");
+      expect(model).toContain("group_by: region");
+      expect(model).toContain("duckdb.table('data/orders.csv')");
+   });
+
+   test("--no-profile restores today's model byte for byte", () => {
+      // The escape hatch has to be exact, not merely similar: someone passing
+      // it wants the file they had before, and "close enough" is how a flag
+      // stops being trusted.
+      const src = path.join(tmp, "orders.csv");
+      fs.writeFileSync(src, "id,amount\n1,10\n2,20\n");
+      const result = run({ name: "shop", dataFile: src, profile: false });
+      expect(result.columnsProfiled).toBeUndefined();
+      expect(result.profileSkipped).toBe("disabled");
+
+      const model = fs.readFileSync(path.join(tmp, "shop/shop.malloy"), "utf8");
+      expect(model).toBe(
+         renderTemplate("model.custom.malloy", {
+            sourceName: "shop",
+            dataPath: "data/orders.csv",
+         }),
+      );
+   });
+
+   test("parquet and xlsx fall through to the templates unchanged", () => {
+      // Binary containers this tool does not open. They keep the starter model
+      // they have always had, which is the fallback the whole feature rests on.
+      for (const [file, template] of [
+         ["books.parquet", "model.custom.malloy"],
+         ["budget.xlsx", "model.custom.xlsx.malloy"],
+      ] as const) {
+         const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-binary-"));
+         try {
+            const src = path.join(dir, file);
+            fs.writeFileSync(src, "not really a binary file");
+            const result = scaffold({
+               name: "shop",
+               cwd: dir,
+               dataFile: src,
+               host: "claude-code",
+               force: false,
+            });
+            expect(result.profileSkipped).toBe("unsupported-format");
+            expect(
+               fs.readFileSync(path.join(dir, "shop/shop.malloy"), "utf8"),
+            ).toBe(
+               renderTemplate(template, {
+                  sourceName: "shop",
+                  dataPath: `data/${file}`,
+               }),
+            );
+         } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+         }
+      }
+   });
+
+   test("a csv this tool cannot read falls back rather than failing", () => {
+      // A header and no rows. --data has always worked on files this tool never
+      // opened, and it has to keep working on them.
+      const src = path.join(tmp, "empty.csv");
+      fs.writeFileSync(src, "id,amount\n");
+      const result = run({ name: "shop", dataFile: src });
+      expect(result.packageCreated).toBe(true);
+      expect(result.profileSkipped).toBe("unreadable");
+      expect(fs.readFileSync(path.join(tmp, "shop/shop.malloy"), "utf8")).toBe(
+         renderTemplate("model.custom.malloy", {
+            sourceName: "shop",
+            dataPath: "data/empty.csv",
+         }),
+      );
    });
 
    test("a csv model carries no spreadsheet warning", () => {

@@ -1,0 +1,30 @@
+// Copyright (c) Credible Data Inc.
+// SPDX-License-Identifier: MIT
+
+// {{sourceName}}: a starter Malloy model over {{dataPath}}, served by Publisher.
+//
+// Unlike a package seeded from a format this tool cannot read, the columns below
+// were read from the file itself, so this model starts with your data's own
+// names rather than with a row count alone. Everything here is a starting point
+// and not an answer: the types come from a sample of the rows, the measures are
+// the numeric columns that are not identifiers, and the views break the data
+// down by the columns with few enough distinct values to chart.
+//
+// The views count rows on purpose. Which of your numbers is worth charting is
+// the one thing a file cannot say, so this does not guess: swap `record_count`
+// in any view below for one of the measures above it and you have the chart you
+// came for. Delete whatever you do not want; a measure over a column that is
+// really a category is the mistake this is most likely to have made.
+//
+// The profile that produced all of it is written out below, so a wrong guess is
+// visible rather than buried: if a column is typed wrong or summed when it
+// should not be, that line says why and the fix is to edit the source under it.
+//
+// Validate edits with compile_model and run new views by name with
+// reload_package. The malloy-modeling skill walks through turning a raw table
+// into a semantic model.
+//
+{{profileComment}}
+
+source: {{sourceName}} is duckdb.table('{{dataPath}}') extend {
+{{dimensions}}{{primaryKey}}{{measures}}{{views}}}

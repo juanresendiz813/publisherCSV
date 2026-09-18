@@ -170,6 +170,18 @@ beforeAll(async () => {
       force: false,
       dataFile: path.join(here, "..", "fixtures", "budget.xlsx"),
    });
+   // A third package, seeded from a CSV whose columns the scaffolder reads and
+   // models. This is the only place the generated names are checked against a
+   // real schema: the unit suite compiles the model through MalloyTranslator,
+   // which catches a reserved word used bare but cannot catch a column that
+   // does not exist -- that needs DuckDB to resolve `Total Amount` and answer.
+   scaffold({
+      name: "orders",
+      cwd: tmp,
+      host: "claude-code",
+      force: false,
+      dataFile: path.join(here, "..", "fixtures", "orders.csv"),
+   });
 
    publisherPort = await freePort();
    mcpPort = await freePort();
@@ -324,6 +336,83 @@ describe("generated project serves against a real server", () => {
       expect(rows).toHaveLength(1);
       // record_count over the 3-row fixture spreadsheet.
       expect(rows[0].record_value[0].number_value).toBe(3);
+   });
+
+   test("a csv-seeded package models its columns and answers them", async () => {
+      const packages = await getJson<{ name: string }[]>(
+         `${api()}/environments/default/packages`,
+      );
+      const names = packages.map((p) => p.name);
+      if (!names.includes("orders")) {
+         throw new Error(
+            `Server is serving but did not mount the csv-seeded "orders". ` +
+               `Packages: ${JSON.stringify(names)}. Log:\n${serverLog}`,
+         );
+      }
+
+      const base = `${api()}/environments/default/packages/orders`;
+      // The assertion the unit suite cannot make. Every name in this model was
+      // derived from the file's headers -- `count` is a Malloy reserved word
+      // and `Total Amount` has a space in it -- so a compile error here means
+      // the generator wrote a name DuckDB does not have.
+      const models = await getJson<{ path: string; error?: string }[]>(
+         `${base}/models`,
+      );
+      const model = models.find((m) => m.path === "orders.malloy");
+      expect(model).toBeDefined();
+      expect(model?.error).toBeUndefined();
+
+      const described = await getJson<{
+         sources: { name: string; views?: { name: string }[] }[];
+      }>(`${base}/models/orders.malloy`);
+      const views = described.sources.flatMap((s) =>
+         (s.views ?? []).map((v) => v.name),
+      );
+      expect(views).toEqual(
+         expect.arrayContaining([
+            "by_region",
+            "order_date_by_month",
+            "overview",
+         ]),
+      );
+
+      const overview = await postJson<{ result: string }>(
+         `${base}/models/orders.malloy/query`,
+         { sourceName: "orders", queryName: "overview" },
+      );
+      const overviewRows = (
+         JSON.parse(overview.result) as {
+            data: {
+               array_value: { record_value: { number_value: number }[] }[];
+            };
+         }
+      ).data.array_value;
+      expect(overviewRows).toHaveLength(1);
+      // 24 rows in tests/fixtures/orders.csv, `Total Amount` summing to 516 and
+      // the reserved-word `count` column to 156. The last two are what prove
+      // the redeclared dimensions resolve to the right columns: a measure
+      // pointed at the wrong one still compiles and still answers.
+      expect(overviewRows[0].record_value[0].number_value).toBe(24);
+      expect(overviewRows[0].record_value[1].number_value).toBe(516);
+      expect(overviewRows[0].record_value[2].number_value).toBe(156);
+
+      const byRegion = await postJson<{ result: string }>(
+         `${base}/models/orders.malloy/query`,
+         { sourceName: "orders", queryName: "by_region" },
+      );
+      expect(
+         (JSON.parse(byRegion.result) as { data: { array_value: unknown[] } })
+            .data.array_value,
+      ).toHaveLength(3);
+
+      const byMonth = await postJson<{ result: string }>(
+         `${base}/models/orders.malloy/query`,
+         { sourceName: "orders", queryName: "order_date_by_month" },
+      );
+      expect(
+         (JSON.parse(byMonth.result) as { data: { array_value: unknown[] } })
+            .data.array_value,
+      ).toHaveLength(3);
    });
 
    test("the MCP endpoint lists the malloy tools", async () => {

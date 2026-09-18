@@ -32,6 +32,8 @@ import {
    installSkills,
    isWithinDirectory,
 } from "./skills";
+import { renderProfiledModel } from "./model";
+import { isProfilableDataFile, profileDataFile } from "./profile";
 import { renderTemplate, templatesDir } from "./templates";
 
 export type Host = "claude-code" | "cursor";
@@ -122,6 +124,12 @@ export interface ScaffoldOptions {
    host: Host;
    /** Overwrite existing workspace files instead of leaving them in place. */
    force: boolean;
+   /**
+    * Read the --data file's columns and model them. Defaults to true, so an
+    * embedder that has not heard of this gets the better model rather than the
+    * older one; false restores the starter model exactly as it was.
+    */
+   profile?: boolean;
 }
 
 export interface ScaffoldResult {
@@ -138,6 +146,23 @@ export interface ScaffoldResult {
     * NOT include. Set only when there is at least one.
     */
    siblingDataFiles?: string[];
+   /**
+    * How many columns were read out of the --data file and modelled. Set only
+    * when the file was profiled; profileSkipped says why when it was not.
+    */
+   columnsProfiled?: number;
+   /** Rows the profile was taken over, which on a big file is a sample. */
+   profileRowsRead?: number;
+   /** True when the file was longer than the profiler reads. */
+   profileTruncated?: boolean;
+   /**
+    * Why the --data file's columns were not read. "disabled" is --no-profile;
+    * "unsupported-format" is Parquet or XLSX, which are binary; "unreadable" is
+    * a file this tool tried and could not make a table of -- empty, header-only,
+    * not UTF-8, or a header it cannot safely quote. All three produce the
+    * starter model this tool has always produced, so none of them is an error.
+    */
+   profileSkipped?: "disabled" | "unsupported-format" | "unreadable";
    /** The environment the package is registered in, which may not be "default". */
    envName: string;
    /**
@@ -630,18 +655,45 @@ function createPackage(options: ScaffoldOptions, result: ScaffoldResult): void {
       if (siblings.length > 0) {
          result.siblingDataFiles = siblings;
       }
+      // Read the file's columns, if this tool can, and model them. The file it
+      // profiles is the one the user pointed at rather than the copy just made:
+      // same bytes, and it keeps this independent of the copy having landed.
+      //
+      // Everything about this step is designed to fall back rather than fail. A
+      // format it cannot read, a file it cannot parse, a header it cannot quote:
+      // each returns undefined and each lands on the starter model below, which
+      // is byte for byte the model every seeded package got before this existed.
+      // --data has always worked on files this tool never opened, and it has to
+      // keep working on them.
+      const profile =
+         options.profile === false
+            ? undefined
+            : profileDataFile(options.dataFile);
+      if (profile) {
+         result.columnsProfiled = profile.columns.length;
+         result.profileRowsRead = profile.rowsProfiled;
+         result.profileTruncated = profile.truncated;
+      } else if (options.profile === false) {
+         result.profileSkipped = "disabled";
+      } else if (!isProfilableDataFile(options.dataFile)) {
+         result.profileSkipped = "unsupported-format";
+      } else {
+         result.profileSkipped = "unreadable";
+      }
       // Spreadsheets get their own starter model. The Malloy is identical; the
       // comment above it is not, because a .csv either parses or fails loudly
       // while a .xlsx whose header is not on row one loads clean and reports the
       // wrong number of rows. That model has to say so, since nothing else will.
       writeFile(
          path.join(packageDir, modelFile),
-         renderTemplate(
-            isSpreadsheet(dataPath)
-               ? "model.custom.xlsx.malloy"
-               : "model.custom.malloy",
-            { sourceName, dataPath },
-         ),
+         profile
+            ? renderProfiledModel(profile, { sourceName, dataPath })
+            : renderTemplate(
+                 isSpreadsheet(dataPath)
+                    ? "model.custom.xlsx.malloy"
+                    : "model.custom.malloy",
+                 { sourceName, dataPath },
+              ),
          options.cwd,
       );
    } else {

@@ -7,6 +7,7 @@ import { ScaffoldError } from "./errors";
 import {
    preview,
    printable,
+   toMalloyFieldName,
    toMalloyIdentifier,
    validatePackageName,
 } from "./names";
@@ -159,6 +160,67 @@ describe("toMalloyIdentifier", () => {
       for (const name of ["orders", "order", "view", "select", "group"]) {
          expect(toMalloyIdentifier(name)).toBe(name);
       }
+   });
+});
+
+describe("toMalloyFieldName", () => {
+   test("leaves a plain header unchanged", () => {
+      expect(toMalloyFieldName("region")).toBe("region");
+      expect(toMalloyFieldName("order_id")).toBe("order_id");
+   });
+
+   test("lowercases, because the name is read back out in generated Malloy", () => {
+      // A package name is the user's own word and keeps its case. A column
+      // header is whatever the export tool wrote, and `total_Total_Yards` next
+      // to `record_count` reads as a bug in the generator.
+      expect(toMalloyFieldName("Total Yards")).toBe("total_yards");
+      expect(toMalloyFieldName("ORDER_ID")).toBe("order_id");
+   });
+
+   test("replaces everything Malloy will not take in a bare name", () => {
+      expect(toMalloyFieldName("unit price ($)")).toBe("unit_price____");
+      expect(toMalloyFieldName("a.b-c")).toBe("a_b_c");
+   });
+
+   test("prefixes an underscore when it would start with a digit", () => {
+      expect(toMalloyFieldName("2024")).toBe("_2024");
+   });
+
+   test("always yields a valid Malloy identifier", () => {
+      for (const header of [
+         "region",
+         "Total Yards",
+         "2024",
+         "a.b.c",
+         "count",
+      ]) {
+         expect(toMalloyFieldName(header)).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+      }
+   });
+
+   test("suffixes a reserved word, against the same table as source names", () => {
+      // The same failure a reserved source name causes: "'count' is a reserved
+      // word, so to use it as a name you must quote it". The suffix differs
+      // only because the thing being named does.
+      expect(toMalloyFieldName("count")).toBe("count_field");
+      expect(toMalloyFieldName("year")).toBe("year_field");
+      expect(toMalloyFieldName("Date")).toBe("date_field");
+      expect(toMalloyFieldName("sum")).toBe("sum_field");
+   });
+
+   test("every reserved word survives as a field name", () => {
+      // The drift guard, in the field-name direction: the same sweep the source
+      // names get, so a Malloy upgrade that adds a keyword reddens this too.
+      const candidates = [
+         ...new Set(MalloyLexer.ruleNames.map((rule) => rule.toLowerCase())),
+      ].filter((word) => /^[a-z_][a-z0-9_]*$/.test(word));
+      const rejected = candidates.filter((word) => !parsesAsSourceName(word));
+      expect(rejected.length).toBeGreaterThan(50);
+
+      const uncovered = rejected.filter(
+         (word) => toMalloyFieldName(word) !== `${word}_field`,
+      );
+      expect(uncovered).toEqual([]);
    });
 });
 
