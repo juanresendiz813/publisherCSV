@@ -53,6 +53,9 @@ jobs:
         run: bun run typecheck
       - name: Lint
         run: bun run lint
+      # Runs after the generators on purpose. Their output is exempted in the
+      # root .prettierignore, so this checks hand-written source only — and it
+      # stays correct if the steps are ever reordered.
       - name: Prettier
         run: bunx prettier './packages/**/*.{ts,tsx}' --check
 
