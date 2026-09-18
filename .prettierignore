@@ -13,6 +13,17 @@ packages/server/dist/
 packages/app/dist/
 packages/cli/dist/
 
+# API-client code written by `bun run generate-api-types` (openapi-generator-cli
+# and openapi-typescript). Never hand-edited, and the generators do not format
+# their output, so `prettier --check` fails on it the moment a job generates
+# before it checks. Git ignores these paths too, but only through the per-package
+# .gitignore files — and Prettier reads just the root .gitignore/.prettierignore
+# relative to where it runs, so it never sees those. Listing them here is what
+# actually exempts them.
+packages/sdk/src/client/
+packages/server/src/api.ts
+packages/cli/src/api/generated/
+
 # Other
 .DS_Store
 *.log
