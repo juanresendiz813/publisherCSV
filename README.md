@@ -3,17 +3,22 @@ Copyright (c) Credible Data Inc.
 SPDX-License-Identifier: MIT
 -->
 
-<h1 align="center">Malloy Publisher</h1>
+# publisherCSV
 
-<h3 align="center">The Analytics Engine for <a href="https://malloydata.dev">Malloy</a></h3>
+[![qa](https://github.com/spiculedata/publisherCSV/actions/workflows/qa.yml/badge.svg)](https://github.com/spiculedata/publisherCSV/actions/workflows/qa.yml)
+[![sec](https://github.com/spiculedata/publisherCSV/actions/workflows/sec.yml/badge.svg)](https://github.com/spiculedata/publisherCSV/actions/workflows/sec.yml)
 
-<p align="center">A post modern data stack — built for the AI era.<br>
-One data model, served over MCP and REST to AI agents, applications, and BI tools.</p>
+**Raw CSVs → a Malloy model → a live, filterable dashboard, served over REST and MCP, from one
+command.**
 
-<p align="center">Created and maintained by <a href="https://www.credibledata.com">Credible</a>, the company behind the AI Analytics Engine.</p>
-
-<p align="center"><sub><strong>AI agents:</strong> read <a href="AGENTS.md">AGENTS.md</a> first (raw: <code>https://raw.githubusercontent.com/malloydata/publisher/main/AGENTS.md</code>).<br>
-It covers starting the server, connecting over MCP, the bundled skills, and the package format. Fetch the raw file, not a summary of this page.</sub></p>
+This is my fork of [Malloy Publisher](https://github.com/malloydata/publisher), carrying a showcase
+the upstream repo does not: a self-contained NFL-season package built from three raw CSV files, plus
+a `demo.mjs` runner that boots the published Publisher server and opens the dashboard with no build,
+no database and no credentials. It is for anyone evaluating Publisher or Malloy who wants to see the
+whole path end to end in a couple of minutes, and for anyone who wants to serve their *own* CSV
+package the same way — `demo.mjs --package` is the seam. Derived from
+[malloydata/publisher](https://github.com/malloydata/publisher), MIT-licensed, tracking upstream
+deliberately rather than automatically.
 
 ## Try it in one line
 
@@ -31,301 +36,150 @@ download and start from the npx cache: 9 s on the same machine, from a fresh clo
 Windows 11 (Node 24) from Git Bash, from PowerShell, and from a fresh clone with no `node_modules`;
 macOS and Linux run the same code path but are untested.
 
-What you get:
-
-- [`examples/nfl-2024`](examples/nfl-2024) — the 2024 NFL season served straight from three CSVs,
-  with its filterable dashboard at <http://127.0.0.1:4000/examples/nfl-2024/dashboards/season>
-  (Team, Division and Season-phase controls; every tile answers to every control);
-- upstream's `storefront` example next to it;
-- the Console at <http://127.0.0.1:4000>, the REST API under `/api/v0`, and the MCP endpoint at
-  `http://127.0.0.1:4040/mcp` for Claude, Cursor, Codex or an agent of your own.
-
 `Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening (verified
 on Windows 11). `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
 (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the pinned
 version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
 git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.
-`node demo.mjs -- --watch-env examples` to live-reload model edits.
+`node demo.mjs -- --watch-env examples` to live-reload model edits. `node demo.mjs --help` prints
+the list.
 
 One note if you also build from source: in a clone where `bun install` has been run, `npx` spends
-about 50 extra seconds walking the installed workspace before the server starts. Point
-`--server_root` at a directory outside the clone to skip that — same config, same packages, 8 s
-instead of 59 s here.
+about 50 extra seconds walking the installed workspace first. Point `--server_root` at a directory
+outside the clone to skip that — same config, same packages, 8 s instead of 59 s here.
 
-**Point it at your own package.** `node demo.mjs --package /path/to/my-package` serves any directory
-that holds a `publisher.json` ([docs/packages.md](docs/packages.md) is the format) as environment
-`demo`; `node demo.mjs --config /path/to/publisher.config.json` uses a config of your own. That is how
-another project reuses this repo: keep `demo.mjs`, swap the package.
+## What you get
 
-Everything below is the upstream Malloy Publisher documentation. The from-source path
-(`bun install && bun run build && bun run start`) is unchanged.
+[`examples/nfl-2024`](examples/nfl-2024) is the 2024 NFL season served straight from three
+[nflverse](https://github.com/nflverse) CSVs — 285 games, 570 team-games, and 32 franchises (36 team
+rows: four are legacy aliases for relocated or renamed clubs). DuckDB reads them in place, one
+Malloy model joins them, and Publisher renders **10 views** and a **6-tile dashboard** with Team,
+Division and Season-phase controls; every tile answers to every control, and the choice lands in
+the URL, so a filtered view is a link. The numbers it lands on: the Eagles at 18-3 including the
+playoffs, home teams winning 54.7% of games, 23.0 points per team per game.
 
-<p align="center">
-  <a href="https://github.com/malloydata/publisher/actions/workflows/build.yml"><img src="https://github.com/malloydata/publisher/actions/workflows/build.yml/badge.svg" alt="build"></a>
-</p>
+Once it is serving:
 
-<p align="center">
-  <a href="https://github.com/user-attachments/assets/376a809d-8016-41a7-9464-a5634ea0589d"><img src="docs/malloy-publisher-demo.gif" alt="Malloy Publisher serving the bundled storefront dashboard" width="800"></a>
-</p>
-<p align="center"><sub>A 60-second walkthrough — model in your IDE with the Malloy skills, serve with Publisher, build a data app, materialize on a schedule, and analyze. <a href="https://github.com/user-attachments/assets/376a809d-8016-41a7-9464-a5634ea0589d">Watch the video</a> for playback controls.</sub></p>
-
-Modeling, a query engine, materialization, access control, and an API — the pieces you used to assemble
-from five projects — ship as one server, built assuming the first builder or consumer is an
-agent.
-
-Write down what your data means, in [Malloy](https://malloydata.dev): the sources, the joins, the
-measures, who may see what. The open-source Malloy [skills](skills/) ship alongside, so an agent can do
-the writing — build the model, then the dashboards, notebooks, and data apps on top of it.
-
-Publisher serves that model to every surface — over MCP to Claude, Cursor, Codex, or an agent you
-build; over REST to applications and BI tools. Agents compose queries against the model instead of
-writing SQL from scratch, so there is no wrong join, no invented column, no fan-out that double-counts
-but looks plausible — and the same question returns the same numbers tomorrow.
-
-- **Model** — an agent builds the model with the bundled open-source [skills](skills/), from a
-  warehouse or a file, and validates each edit without a restart.
-- **Analyze** — Claude, Cursor, Codex, or an agent you build asks over MCP; unattended agents and
-  applications use REST. Queries are Malloy, legible enough to review at a glance, and run against
-  the model, never your raw tables.
-- **Surface** — dashboards declared in Malloy and built by dragging tiles if you like, notebooks,
-  and no-build HTML data apps, all shipped inside the package, plus the Console for browsing it all.
-- **Govern** — givens, row-level access, and `#(authorize)` decide who sees what; discovery curation
-  decides what is even visible.
-- **Optimize** — one `#@ persist` annotation materializes an expensive source into a table and
-  `#@ preaggregate` rolls it up, rebuilt on demand or on a schedule.
-- **Run anywhere** — DuckDB built in for CSV, Parquet, JSON, and Excel; BigQuery, Snowflake, Postgres,
-  Databricks, MotherDuck, and more by connection; `npx`, Docker, or Compose, in minutes.
-
-## Requirements
-
-Node.js 20 or newer (the server refuses to start on anything older and says so). Building from a clone
-also needs [Bun](https://bun.sh/) 1.3.13+. The Docker image carries its own runtime and needs neither.
-
-## Quick start
-
-### Run the examples
+- **Dashboard** — <http://127.0.0.1:4000/examples/nfl-2024/dashboards/season>
+- **Console** — <http://127.0.0.1:4000> (browse packages, models, views; upstream's `storefront`
+  example sits next to ours)
+- **REST** — everything the Console does is under `/api/v0`, and the server publishes its own
+  OpenAPI spec at <http://127.0.0.1:4000/api-doc.yaml>
+- **MCP** — `http://127.0.0.1:4040/mcp`, so Claude, Cursor, Codex or an agent of your own can ask
+  the model questions directly
 
 ```bash
-npx @malloy-publisher/server@latest --port 4000
+curl -s http://127.0.0.1:4000/api/v0/status | grep -o '"operationalState":"[a-z]*"'   # -> "serving"
 ```
 
-Open **http://localhost:4000**. Three example packages are bundled — [`storefront`](examples/storefront)
-(a complete ecommerce model), [`governed-analytics`](examples/governed-analytics) (access control), and
-[`html-data-app`](examples/html-data-app) (a no-build dashboard) — all DuckDB-backed, no credentials
-required. The first run fetches them from GitHub.
+[`examples/nfl-2024/README.md`](examples/nfl-2024/README.md) is the walkthrough: what each CSV
+holds, how the model's one `pick` decides which side was home (wins, points for and against and the
+home/away split all follow from it), every view and tile, the REST calls that reproduce the numbers
+above, and the two gotchas worth knowing before copying the pattern. The same folder holds
+[`capture.mjs`](examples/nfl-2024/capture.mjs), which records a 72-second package → model →
+dashboard → filter walkthrough with Playwright, and
+[`csv-to-malloy.mjs`](examples/nfl-2024/csv-to-malloy.mjs), below. The clip itself is a git-ignored
+build artifact rather than a committed file — run the script to make your own.
 
-## Start from your own data
+<!-- Walkthrough video: link it here once it is hosted. -->
 
-### Create a package
+## Bring your own CSV
+
+The demo runner is not nfl-specific. Any directory holding a `publisher.json` is a package it can
+serve:
 
 ```bash
-mkdir my-data && cd my-data
-npm create @malloy-publisher/malloy-package@latest sales
-npm start
+node demo.mjs --package /path/to/my-package        # served as environment "demo"
+node demo.mjs --config /path/to/publisher.config.json   # or bring a whole config
 ```
 
-This writes a package to `./sales` — plus, in the current directory, a small workspace: start and
-reset scripts, an MCP config, agent instructions, and the Malloy skills as files your agent can read.
-`npm start` serves the package in watch mode, so edits take effect as you save. Keep the `@latest`:
-without it npm may reuse a cached, older version. The finer points of `npm create` — caching, workspace
-layout, the bare `npx` form — are in [docs/scaffolding.md](docs/scaffolding.md).
-Agents: [AGENTS.md](AGENTS.md) sections 1 and 2 have the same steps plus the pitfalls around `@latest`,
-the `--` before `--data`, and reconnecting the MCP client after the server starts.
-
-### Bring local data files
+[docs/packages.md](docs/packages.md) is the package format. If you have a CSV but no model yet,
+`csv-to-malloy.mjs` writes the first draft — it profiles the file (types, distinct values, blanks
+per column) and emits a `duckdb.table()` source with measures, a `row_count`, and three starter
+views:
 
 ```bash
-npm create @malloy-publisher/malloy-package@latest sales -- --data ./orders.csv
+node examples/nfl-2024/csv-to-malloy.mjs orders.csv --profile            # the column report only
+node examples/nfl-2024/csv-to-malloy.mjs orders.csv --out orders.malloy  # the starter model
+node examples/nfl-2024/csv-to-malloy.mjs orders.csv --check \
+  http://127.0.0.1:4000/api/v0/environments/examples/packages/nfl-2024/models/nfl.malloy
 ```
 
-CSV, Parquet, JSON, newline-delimited JSON, or Excel `.xlsx` — DuckDB reads all of them in place. The
-`--` is required, and the path is relative to where you run the command. A seeded package starts
-small: a row count and an overview, which is the moment to point an agent at it.
+`--check` posts the generated model to a running server's `/compile` endpoint and prints the
+diagnostics, exiting non-zero on an error, so you find out it compiles before you save anything. It
+is a starting point, not a finished model: the dimension worth having still needs a person.
 
-### Connect a database
+## From source
 
-A package is just Malloy, so it is not limited to local files. Add a
-[connection](docs/connections.md) — BigQuery, Snowflake, Postgres, Databricks, MotherDuck, and more —
-and point the model at it; the same workspace serves a warehouse. Have the warehouse but no model yet?
-Ask the agent what is in it: `search_database_schema` ranks a connection's tables against a
-plain-English description and hands back the `source:` line for each. Ranking needs no API key; the
-optional embedding-backed mode is in
-[docs/configuration.md](docs/configuration.md#semantic-ranking-for-search_database_schema).
-
-## Point your agent at it
-
-### Connect Claude Code
-
-Keep the server from [Quick start](#quick-start) running — or `npm start` from
-[Create a package](#create-a-package). On startup it wrote a `.mcp.json` into the directory you ran it
-in, pointing at the MCP port it bound. Open a second terminal, **in that same directory**, and start
-the agent:
+The one-liner runs the *published* server. To build this repo instead:
 
 ```bash
-claude
+bun install
+bun run build
+bun run start        # REST + Console on :4000, MCP on :4040
 ```
 
-Say yes when the agent asks to trust the folder, use the server it found, and approve the first tool
-call — the trust prompt is asked once per directory, and only interactively, so a headless run can't
-clear it. Then ask, in plain English:
+Prerequisites: **Node.js 20+**, **Bun 1.3.13+**, and a **JDK 21** — the JDK is used only by
+`build:sdk`, for the OpenAPI client generator. On Windows, build from **Git Bash**; the npm scripts
+are POSIX shell. [docs/development.md](docs/development.md) is upstream's fuller guide.
 
-> _"Use Malloy to explore the storefront sales data and chart revenue by category."_
+Docker is the other from-source path: the root [`Dockerfile`](Dockerfile) builds the image, and
+[`docker-compose.example.yml`](docker-compose.example.yml) is a starting compose file. Keep the
+server on loopback or behind an authenticating gateway — see Security below.
 
-The agent discovers what exists (`get_context`), grounds itself in real source, view, and field
-names, runs the query (`execute_query`), and answers from your model — no schema spelunking, no
-hallucinated columns.
+## CI/CD
 
-If the agent reports no Malloy tools, register the server for yourself instead of relying on that
-file:
+Three workflows, all keyed on `${{ github.repository }}`, so nothing hard-codes an org or a
+registry:
 
-```bash
-claude mcp add --transport http malloy http://127.0.0.1:4040/mcp -s user
+| Workflow | Runs on | What it blocks |
+|---|---|---|
+| `qa.yml` | PRs, pushes to `development` / `main` | typecheck, lint, prettier; sdk + server test suites; a demo smoke run that boots the built server and asserts the nfl-2024 package actually serves |
+| `sec.yml` | PRs, pushes to `development` / `main`, Mondays | gitleaks over full history; CodeQL (js/ts + python); a `bun audit` gate on production criticals; actionlint |
+| `cd.yml` | a `v*` tag push, or manual dispatch | builds the root `Dockerfile`, pushes to `ghcr.io/<owner>/<repo>`, then smokes the pushed image by digest |
+
+[`.github/ci/README.md`](.github/ci/README.md) has the details — how to point the smoke script at
+another package, which inherited upstream workflows I kept, gated or deleted, and the audit
+allowlist with a reason per entry.
+
+Two things have to be set on the GitHub repo before the first run is green: a `GITLEAKS_LICENSE`
+secret (gitleaks fails closed on org-owned repos), and CodeQL's *default setup* left **off**, since
+`sec.yml` runs CodeQL itself and the two conflict.
+
+## Layout
+
+```
+demo.mjs                 the one-liner runner (zero dependencies, Node 20+)
+demo/                    publisher.config.json it serves; demo/.run is scratch, git-ignored
+examples/nfl-2024/       our showcase: 3 CSVs, nfl.malloy, dashboards/, capture.mjs, csv-to-malloy.mjs
+examples/                upstream's example packages (storefront, governed-analytics, html-data-app, data-app)
+packages/                the engine: server (REST + MCP), app (Console), sdk, cli, skills, python-client
+.github/                 workflows (qa, sec, cd), the shared toolchain action, and ci/ scripts
+docs/                    upstream's reference docs, plus UPSTREAM-README.md
 ```
 
-The server skips writing the file in some directories (a git working tree, your home directory, one
-that already has a `.mcp.json`) and says so in its startup log. When it is written, why it can go
-stale, and how to turn it off:
-[docs/configuration.md](docs/configuration.md#the-mcpjson-the-server-writes).
+## Upstream
 
-### Other clients, and unattended agents
+Malloy Publisher is the analytics engine for [Malloy](https://malloydata.dev): you write down what
+your data means once — sources, joins, measures, who may see what — and the server hands that one
+model to every surface, over REST to applications and BI tools and over MCP to agents, so queries
+compose against the model instead of against raw tables. It is created and maintained by
+[Credible](https://www.credibledata.com) and licensed MIT.
 
-Cursor, VS Code, Codex, and Claude Desktop take the same endpoint through their own config; see
-[docs/ai-agents.md](docs/ai-agents.md). An agent working unattended that started the server itself uses
-the same loop over REST:
+Upstream's own documentation is unchanged in [`docs/`](docs/) — start at its
+[index](docs/README.md) — and upstream's README is preserved as
+[docs/UPSTREAM-README.md](docs/UPSTREAM-README.md). This fork tracks upstream by deliberate,
+recorded decision, never automatically: upstream is a read-only remote here, and I do not send
+changes back to it.
 
-```bash
-curl -s -X POST \
-  http://localhost:4000/api/v0/environments/examples/packages/storefront/models/storefront.malloy/query \
-  -H 'content-type: application/json' \
-  -d '{"query":"run: order_items -> by_category","compactJson":true}' | jq -r .result
-```
+## License
 
-The running server serves its full OpenAPI spec at `http://localhost:4000/api-doc.yaml`.
+MIT, inherited from [malloydata/publisher](https://github.com/malloydata/publisher)
+(Credible Data Inc.) — see [LICENSE](LICENSE). SPDX headers stay on inherited files.
 
-> **Security.** The server — MCP and REST alike — is stateless and unauthenticated, and it can read any
-> data your models connect to. Bind it to loopback (`--host 127.0.0.1`) for local use, and put an
-> authenticating gateway in front before exposing it more widely.
+## Security
 
-## What you can do
-
-### Model
-
-- **Build the model with an agent.** The bundled open-source [skills](skills/) carry the whole loop —
-  discover what a database holds, define sources and measures, model as you go, review, document,
-  publish. A LookML review skill covers coming from Looker.
-- **Start from a warehouse.** `search_database_schema` ranks a connection's tables against a
-  plain-English description and returns the `source:` line for each.
-- **Validate without a restart.** `compile_model` checks an edit without running it;
-  `reload_package` recompiles a package from disk. Watch mode does the same for a human editing
-  in an IDE.
-
-### Analyze
-
-- **Ask in plain English.** An agent grounds itself with `get_context`, runs
-  `execute_query`, and answers from the model, never from raw tables. Analysis skills teach it the
-  pitfalls and how to write up a finding — [docs/ai-agents.md](docs/ai-agents.md).
-- **Work in notebooks.** `.malloynb` notebooks live inside a package, mix prose and queries, and run on
-  the same governed endpoints — [docs/choosing-a-surface.md](docs/choosing-a-surface.md).
-- **Explore, no code.** Build and drill into queries visually with [Malloy Explorer](docs/explorer.md);
-  every action generates valid Malloy, so metrics stay correct across joins.
-
-### Surface
-
-- **Dashboards declared in Malloy.** A `dashboards/*.malloy` file _is_ the dashboard: filterable,
-  clickable, grid-laid-out, no code and no build step. Build it by dragging tiles around a grid in
-  the Console if you want the classic feel, or write the tags by hand — same file either way, and it
-  reviews like any other source file — [docs/dashboards.md](docs/dashboards.md).
-- **No-build HTML data apps.** Ship HTML, CSS, and JavaScript inside a package and Publisher hosts it
-  against the model — [docs/html-data-apps.md](docs/html-data-apps.md).
-- **The Publisher Console.** Browse packages, models, and every artifact in the built-in web UI, with
-  your own [colors, fonts, and dark mode](docs/theming.md) — [docs/console.md](docs/console.md).
-- **Your own applications.** The REST API serves any language; a Python client ships in
-  [`packages/python-client`](packages/python-client), and the running server publishes its OpenAPI spec.
-
-### Govern
-
-- **Decide who sees what.** [Givens](docs/givens.md) declare runtime parameters and drive filter
-  widgets; [row-level access](docs/row-level-access.md) and [`#(authorize)`](docs/authorize.md) gate
-  which rows a caller gets and whether they may query a source at all.
-- **Decide what is visible.** Curate what is [discoverable and queryable](docs/discovery-and-access.md)
-  separately, so an agent sees only the sources you meant it to.
-- **Know the boundary.** [docs/security-posture.md](docs/security-posture.md) lists what Publisher
-  defends against and what it leaves to the gateway in front of it.
-
-### Optimize
-
-- **Materialize.** One `#@ persist` annotation turns an expensive source into a table, rebuilt on
-  demand, from the `malloy-pub` CLI, or on a cron with the opt-in scheduler —
-  [docs/materialization.md](docs/materialization.md).
-- **Pre-aggregate.** `#@ preaggregate` rolls a measure up to a coarse grain so covered queries read a
-  small table instead of the fact table — [docs/preaggregation.md](docs/preaggregation.md).
-- **Store it where you like.** Persist into a [DuckLake](docs/ducklake.md) storage tier, attach a
-  DuckLake catalog read-only, and run offline or air-gapped —
-  [docs/persist-storage-tutorial.md](docs/persist-storage-tutorial.md).
-- **Attribute every query.** [Query metadata](docs/query-metadata.md) tags each statement with a team,
-  a workload, a request id, so the warehouse's own reporting can say who asked.
-
-### Run anywhere
-
-- **Any data.** DuckDB is built in for CSV, Parquet, JSON, and Excel; connect BigQuery, Snowflake,
-  Postgres, MySQL, Trino, Databricks, MotherDuck, and DuckLake — [docs/connections.md](docs/connections.md).
-- **Any host.** `npx`, Docker, or Docker Compose, in minutes — [docs/deployment.md](docs/deployment.md).
-- **Alongside dbt.** Where Malloy and dbt fit together, and the plan to close the gaps —
-  [docs/dbt-roadmap.md](docs/dbt-roadmap.md).
-
-## Examples
-
-The fastest way to see all of the above is the [`examples/`](examples/) directory. Three are packages
-Publisher serves out of the box, and a fourth shows the SDK:
-
-- **[storefront](examples/storefront)** — the flagship ecommerce model: sources, joins, dashboards, a
-  notebook, and givens-driven filters. It is the package Quick start serves, and the one the SDK
-  example reads from.
-- **[governed-analytics](examples/governed-analytics)** — the whole governance story in one small
-  package: givens, row-level access, and `#(authorize)` source gates.
-- **[html-data-app](examples/html-data-app)** — a no-build SaaS subscriptions dashboard served from
-  a package's `public/` directory, driven by `Publisher.query()`.
-- **[data-app](examples/data-app)** — a standalone Vite + React app on
-  [`@malloy-publisher/sdk`](packages/sdk), embedding live results in your own UI. Not a served
-  package.
-
-## Documentation
-
-The [`docs/`](docs/) folder is the reference hub; start at its [index](docs/README.md). Beyond the
-guides linked above: [architecture](docs/architecture.md) for how the pieces fit together,
-[api-overview](docs/api-overview.md) for the REST and MCP surface, [packages](docs/packages.md) for
-the package format (`publisher.json`, models, data), and the
-[Docker runtime deep-dive](packages/server/README.docker.md) for image layout, environment, and
-tuning. The complete user guide also lives at
-**[docs.malloydata.dev](https://docs.malloydata.dev/documentation/user_guides/publishing/publishing)**.
-
-## Publisher and Credible
-
-Publisher is created and maintained by [Credible](https://www.credibledata.com), the company behind
-the **AI Analytics Engine**. The two fit together like this:
-
-- **Publisher is the open-source analytics engine.** It serves Malloy models over REST and MCP, and everything
-  an agent needs from the language and the server — the modeling and analysis skills, the MCP tools —
-  ships here in the open. Run it on a laptop, in Docker, or wherever you like.
-- **Credible is the hosted, governed engine built around it.** You write down what your data means
-  once, in Malloy; the engine owns the how — it materializes and indexes the model in storage it
-  brings along, enforces access at one gateway on every query, compresses each model into a concept
-  index so an agent gets just the slice a question needs, and serves every surface — agents over MCP,
-  dashboards and workspaces, the data apps and APIs in your product — from one model.
-
-Run Publisher yourself, or let Credible run it: the model is the same Malloy either way, and moving
-between them is a publish, not a rewrite. Where the open-source engine ends and the hosted one begins:
-[credibledata.com/malloy](https://www.credibledata.com/malloy) ·
-[Inside the AI Analytics Engine](https://www.credibledata.com/blog/posts/inside-the-ai-analytics-engine).
-
-## Contributing
-
-Build and hack on Publisher from a clone with [docs/development.md](docs/development.md); contribution
-process and sign-off are in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Community
-
-- Join the [Malloy Slack](https://join.slack.com/t/malloy-community/shared_invite/zt-1kgfwgi5g-CrsdaRqs81QY67QW0~t_uw)
-- Report issues on [GitHub](https://github.com/malloydata/publisher/issues)
-- Report a security vulnerability privately — see [SECURITY.md](SECURITY.md) for the reporting form
-  and what's in scope
+The server is stateless and **unauthenticated** on both ports, and it can read any data the models
+connect to. Keep it on loopback (`--host 127.0.0.1`, which `demo.mjs` passes by default) and put an
+authenticating gateway in front before exposing it further. To report a vulnerability, see
+[SECURITY.md](SECURITY.md).
