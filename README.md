@@ -5,8 +5,8 @@ SPDX-License-Identifier: MIT
 
 # publisherCSV
 
-[![qa](https://github.com/spiculedata/publisherCSV/actions/workflows/qa.yml/badge.svg)](https://github.com/spiculedata/publisherCSV/actions/workflows/qa.yml)
-[![sec](https://github.com/spiculedata/publisherCSV/actions/workflows/sec.yml/badge.svg)](https://github.com/spiculedata/publisherCSV/actions/workflows/sec.yml)
+[![qa](https://github.com/juanresendiz813/publisherCSV/actions/workflows/qa.yml/badge.svg)](https://github.com/juanresendiz813/publisherCSV/actions/workflows/qa.yml)
+[![sec](https://github.com/juanresendiz813/publisherCSV/actions/workflows/sec.yml/badge.svg)](https://github.com/juanresendiz813/publisherCSV/actions/workflows/sec.yml)
 
 **Raw CSVs → a Malloy model → a live, filterable dashboard, served over REST and MCP, from one
 command.**
@@ -23,7 +23,7 @@ deliberately rather than automatically.
 ## Try it in one line
 
 ```bash
-git clone https://github.com/spiculedata/publisherCSV.git && cd publisherCSV && node demo.mjs
+git clone https://github.com/juanresendiz813/publisherCSV.git && cd publisherCSV && node demo.mjs
 ```
 
 That is the whole setup. [`demo.mjs`](demo.mjs) needs **Node.js 20 or newer** and nothing else — no
