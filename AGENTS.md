@@ -112,7 +112,10 @@ npm start
 - The `--` before `--data` is required, or `npm create` swallows the flag and the scaffolder stops.
 - `--data` takes CSV, Parquet, JSON, newline-delimited JSON, or Excel `.xlsx`, by a path relative to
   the current directory; the file is copied into the package. Omit it for a small sample dataset.
-- A seeded package starts as a row count and an overview — the modelling is yours to do next.
+- A package seeded from CSV, JSON or newline-delimited JSON starts from that file's own columns: the
+  scaffolder reads the head of it and models what it finds, and writes the profile it used into the
+  model as a comment. Parquet and `.xlsx` are binary and are not read, so those start as a row count
+  and an overview; `--no-profile` starts any of them that way.
 - With the workspace in place, `npm start` (and a bare `npx @malloy-publisher/server` from that
   directory) serves this package, not the examples. `npm start` serves it in watch mode, so a saved
   edit to the model recompiles without a reload (section 6 explains watch mode and its limits).
