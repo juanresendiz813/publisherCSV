@@ -33,11 +33,15 @@ waits until the server reports `serving`, prints the URLs and opens the dashboar
 The first run downloads the server (about 30 MB, plus its dependencies): 2 min 50 s from
 `node demo.mjs` to the dashboard on a Windows 11 laptop over home Wi-Fi. Later runs skip the
 download and start from the npx cache: 9 s on the same machine, from a fresh clone. Verified on
-Windows 11 (Node 24) from Git Bash, from PowerShell, and from a fresh clone with no `node_modules`;
-macOS and Linux run the same code path but are untested.
+Windows 11 (Node 24) from Git Bash, from PowerShell, and from a fresh clone with no `node_modules`,
+and on Ubuntu 24.04 under WSL2 (Node 22), cloning this repo from GitHub into the Linux filesystem:
+2 min 8 s cold, 8.6 s warm, same dashboard and same numbers. That is WSL2 rather than a bare-metal
+Linux box; macOS runs the same code path but is untested.
 
-`Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening (verified
-on Windows 11). `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
+`Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening — and so
+does signalling the runner alone (`kill -INT` or `kill -TERM` on Linux, `taskkill /pid <pid> /T /F`
+on Windows), which is the way a supervisor or a CI job stops it; both verified on Windows 11 and on
+Ubuntu 24.04 under WSL2. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
 (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the pinned
 version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
 git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.
