@@ -39,9 +39,13 @@ and on Ubuntu 24.04 under WSL2 (Node 22), cloning this repo from GitHub into the
 Linux box; macOS runs the same code path but is untested.
 
 `Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening — and so
-does signalling the runner alone (`kill -INT` or `kill -TERM` on Linux, `taskkill /pid <pid> /T /F`
-on Windows), which is the way a supervisor or a CI job stops it; both verified on Windows 11 and on
-Ubuntu 24.04 under WSL2. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
+does stopping it from outside the terminal, the way a supervisor or a CI job does: `kill -INT` or
+`kill -TERM` on the runner's PID on Linux, `taskkill /pid <pid> /T /F` (a tree kill) on Windows.
+Both verified on Windows 11 and on Ubuntu 24.04 under WSL2. `kill -9` is the exception, because
+nothing can run on `SIGKILL`: it leaves the server behind, still holding both ports, and on Linux
+that orphan is in a session of its own where a second `Ctrl-C` and closing the terminal will not
+reach it. Clear it by hand — `ps -o pid,pgid,args | grep malloy-publisher` prints the pgid, then
+`kill -9 -<pgid>`. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
 (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the pinned
 version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
 git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.
