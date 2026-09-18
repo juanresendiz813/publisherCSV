@@ -336,18 +336,34 @@ child.on("error", (error) => {
 });
 
 let exitCodeOverride = null;
+// True only while the orphan sweep is watching a process group that outlived
+// the child leading it: the one state in which a group kill is still justified
+// after the child has been reaped.
+let orphanGroupAlive = false;
 child.on("exit", (code, signal) => {
    childExited = true;
-   if (exitCodeOverride !== null) process.exit(exitCodeOverride);
-   if (!serving && !stopping) {
-      process.stderr.write(`demo: the server exited before it was serving (code=${code ?? "null"} signal=${signal ?? "none"}).\n`);
-   }
-   process.exit(code ?? (stopping ? 0 : 1));
+   const finish = () => {
+      if (exitCodeOverride !== null) process.exit(exitCodeOverride);
+      if (!serving && !stopping) {
+         process.stderr.write(`demo: the server exited before it was serving (code=${code ?? "null"} signal=${signal ?? "none"}).\n`);
+      }
+      process.exit(code ?? (stopping ? 0 : 1));
+   };
+   // `child` LEADS the process group, it is not the group: npx interposes an
+   // `sh -c` layer with the real server under it. When the leader goes first —
+   // `kill -9` on the npx pid, or a server that outlives the npx that was
+   // signalled alongside it — those two are left holding both ports with
+   // nothing above them, and exiting here would strand them. Wait them out.
+   if (groupAlive()) return sweepOrphanedGroup(finish);
+   finish();
 });
 
 // ---------------------------------------------------------------------------
 // 6. Stop cleanly: forward the signal, wait, force after a grace period
 // ---------------------------------------------------------------------------
+// How long a stop waits for a graceful shutdown before forcing one.
+const STOP_GRACE_MS = process.platform === "win32" ? 5000 : 10000;
+
 function stop(signal, exitCode) {
    if (stopping) return;
    stopping = true;
@@ -361,11 +377,18 @@ function stop(signal, exitCode) {
    // and nothing is left listening). kill() here would only terminate npx
    // and orphan the server, so skip it; the tree kill below covers a stop
    // that did NOT come from the console, e.g. PUBLISHER_INIT_FAILED.
-   if (process.platform !== "win32") signalGroup(signal);
+   // SIGQUIT is forwarded as SIGTERM: nothing in the tree handles SIGQUIT, and
+   // the default action for it is "terminate and dump core" — one core file per
+   // process, in the server root. Ask for the same clean shutdown instead.
+   if (process.platform !== "win32") signalGroup(signal === "SIGQUIT" ? "SIGTERM" : signal);
    const grace = setTimeout(() => {
+      // `childExited` means the child's own "exit" handler took over: it
+      // either found the group gone or is watching it on the same deadline,
+      // and it owns the escalation from there. Nothing to force here, and the
+      // pid is no longer reliably ours to aim a blind group kill at.
       if (childExited) return;
       killTree(child.pid);
-   }, process.platform === "win32" ? 5000 : 10000);
+   }, STOP_GRACE_MS);
    grace.unref();
 }
 
@@ -387,6 +410,53 @@ function signalGroup(signal) {
    }
 }
 
+// POSIX only. Does the child's process group still exist? Signal 0 sends
+// nothing at all and only reports whether there is something to send to;
+// ESRCH means genuinely gone, anything else (EPERM) means it is there but not
+// ours to signal.
+function groupAlive() {
+   if (process.platform === "win32" || !child.pid) return false;
+   try {
+      process.kill(-child.pid, 0);
+      return true;
+   } catch (error) {
+      return error.code !== "ESRCH";
+   }
+}
+
+// The child's process group outlived the child that led it. The runner is on
+// its way out and nothing else will supervise what is left, so it does not go
+// until they do: ask once if nothing has asked yet, watch, then force.
+//
+// Waiting, rather than killing on the spot, is deliberate. A kill in the reap
+// callback needs no probe and so cannot reach a recycled pgid, but it is wrong
+// in practice: measured on `kill -TERM <runner pid>`, `npm exec` exits ~0.1 s
+// BEFORE the server has finished closing down, so kill-on-reap SIGKILLs a
+// perfectly healthy shutdown on the commonest supervisor stop there is.
+// Watching costs a pid-recycling window, but only one tick of it: the
+// escalation below is reached only if the group answered a probe at EVERY
+// sample since the reap, so a recycled pgid would have to appear inside the
+// one tick that the real group left in, in a process that also made itself a
+// group leader. Short of Linux-only /proc identity checks, that is as small as
+// this gets from JS. Windows has no equivalent to any of it: once the child is
+// reaped there is no tree left for `taskkill /T` to walk.
+const ORPHAN_POLL_MS = 100;
+
+function sweepOrphanedGroup(done) {
+   orphanGroupAlive = true;
+   process.stderr.write(`demo: npx exited with the server still running; stopping its process group (${child.pid}).\n`);
+   if (!stopping) signalGroup("SIGTERM"); // nothing has asked it to stop yet
+   const deadline = Date.now() + STOP_GRACE_MS;
+   const watch = setInterval(() => {
+      const alive = groupAlive();
+      if (alive && Date.now() < deadline) return;
+      if (alive) signalGroup("SIGKILL"); // out of grace and still holding the ports
+      orphanGroupAlive = false;
+      clearInterval(watch);
+      done();
+   }, ORPHAN_POLL_MS);
+}
+
 function killTree(pid) {
    try {
       if (process.platform === "win32") {
@@ -399,16 +469,35 @@ function killTree(pid) {
    }
 }
 
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+// Every signal a terminal or a supervisor realistically stops a foreground
+// process with. SIGQUIT earns its place because Node runs NO exit handler for
+// a signal nothing listens for, so `kill -QUIT` would leak the whole group;
+// one array entry closes that. The list stops there because what is left is
+// either uncatchable (SIGKILL, SIGSTOP — see below) or not a stop signal
+// (SIGUSR1 is Node's debugger, SIGWINCH is a resize).
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"]) {
    process.on(signal, () => stop(signal));
 }
 
 // Belt and braces. A detached child outlives its parent, so any exit path that
 // did not already stop the server — an uncaught throw, a `fail()` after the
-// spawn, `process.exit()` from the error handler — has to take the group down
-// on its way out. One synchronous kill(2); nothing to await.
+// spawn, `process.exit()` from the error handler, a second Ctrl-C while the
+// orphan sweep is still waiting — has to take the group down on its way out.
+// One synchronous kill(2); nothing to await. The two cases it fires in are the
+// two where a group kill is still aimed at something known to be ours: the
+// child is not reaped yet, or the sweep has been watching its group answer
+// probes ever since it was.
+//
+// What no handler can cover: SIGKILL and SIGSTOP run no code at all, so
+// `kill -9` on this runner leaves the server alive and holding both ports. It
+// leaked that way before this file spawned detached too — but recovering from
+// it got harder, and that part IS new: `detached` calls setsid(), so the
+// orphan now sits in its own session instead of the terminal's, where neither
+// a second Ctrl-C nor closing the terminal reaches it. Recover by hand:
+// `ps -o pid,pgid,args` prints the pgid, and `kill -9 -<pgid>` clears it.
 process.on("exit", () => {
-   if (childExited || process.platform === "win32") return;
+   if (process.platform === "win32") return;
+   if (childExited && !orphanGroupAlive) return;
    signalGroup("SIGKILL");
 });
 
