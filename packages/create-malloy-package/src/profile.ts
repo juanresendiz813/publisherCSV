@@ -54,9 +54,9 @@ export interface Profile {
  *
  * The obvious implementation is `fs.readFileSync(file, "utf8")`, and it is the
  * one this started as. It cannot ship. Node's hard ceiling on a single string is
- * `buffer.constants.MAX_STRING_LENGTH`, 512 MiB on 64-bit, and Publisher's own
- * QA has served a 784 MB CSV through this scaffolder -- so the whole-file read
- * does not degrade on a big file, it throws, after the package directory and the
+ * `buffer.constants.MAX_STRING_LENGTH`, 512 MiB on 64-bit, and this scaffolder
+ * has been measured against a 784 MB CSV export -- so the whole-file read does
+ * not degrade on a big file, it throws, after the package directory and the
  * copied data file are already on disk. Even well under the ceiling it is the
  * wrong shape: `npm create` is a command someone runs while watching it, and
  * holding a gigabyte to count distinct values in the first few thousand rows is

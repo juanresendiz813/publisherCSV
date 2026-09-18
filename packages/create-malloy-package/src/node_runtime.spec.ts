@@ -123,11 +123,11 @@ beforeAll(() => {
 
 describe("the built bundle under Node", () => {
    test("a JSON key named after an Object.prototype member scaffolds", () => {
-      // SEC's file, byte for byte: 33 bytes, and it used to stop the CLI with
-      // `Cannot read properties of undefined (reading 'trim')` after the
-      // package directory, publisher.json, malloy-config.json and the copied
-      // data file were already written -- a package the user had to delete by
-      // hand before they could try again.
+      // The smallest file that reproduces it, byte for byte: 33 bytes. It used
+      // to stop the CLI with `Cannot read properties of undefined (reading
+      // 'trim')` after the package directory, publisher.json,
+      // malloy-config.json and the copied data file were already written -- a
+      // package the user had to delete by hand before they could try again.
       const dir = seeded("proto.json", '[{"constructor":1,"a":1},{"a":2}]');
       const run = runNode(cliBundle, ["sales", "--data", "./proto.json"], dir);
       expect(run.status).toBe(0);
