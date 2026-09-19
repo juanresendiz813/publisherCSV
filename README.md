@@ -33,11 +33,24 @@ waits until the server reports `serving`, prints the URLs and opens the dashboar
 The first run downloads the server (about 30 MB, plus its dependencies): 2 min 50 s from
 `node demo.mjs` to the dashboard on a Windows 11 laptop over home Wi-Fi. Later runs skip the
 download and start from the npx cache: 9 s on the same machine, from a fresh clone. Verified on
-Windows 11 (Node 24) from Git Bash, from PowerShell, and from a fresh clone with no `node_modules`;
-macOS and Linux run the same code path but are untested.
+Windows 11 (Node 24) from Git Bash, from PowerShell, and from a fresh clone with no `node_modules`,
+and on Ubuntu 24.04 under WSL2 (Node 22), cloning this repo from GitHub into the Linux filesystem:
+2 min 8 s cold, 8.6 s warm, same dashboard and same numbers. That is WSL2 rather than a bare-metal
+Linux box; macOS runs the same code path but is untested.
 
-`Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening (verified
-on Windows 11). `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
+`Ctrl-C` stops everything — the runner, `npx` and the server, with no port left listening — and so
+does stopping it from outside the terminal, the way a supervisor or a CI job does: `kill -INT` or
+`kill -TERM` on the runner's PID on Linux, `taskkill /pid <pid> /T /F` (a tree kill) on Windows.
+Both verified on Windows 11 and on Ubuntu 24.04 under WSL2. The runner forwards the signal it was
+sent and the published server handles only `SIGTERM`, so a `SIGINT` stop frees both ports without
+logging the worker-pool drain a `kill -TERM` logs — fewer lines on the way out, not a worse stop.
+`kill -9` is the exception, because nothing can run on `SIGKILL`: it leaves the server behind, still
+holding both ports, and on Linux that orphan is in a session of its own where a second `Ctrl-C` and
+closing the terminal will not reach it. Clear it by hand:
+`ps -eo pid,pgid,args | grep malloy-publisher` prints the server's `npm exec` and `node` rows and
+the pgid they share, then `kill -9 -<pgid>` clears it. The `-e` is not optional — a plain `ps` lists
+only the processes on your own terminal, and this orphan is precisely the one that no longer has
+one. `npm run demo` is the same command. Flags: `--port` / `--mcp_port` / `--host`
 (defaults 4000 / 4040 / 127.0.0.1), `--no-open`, `--latest` (run `@latest` instead of the pinned
 version), `--server_root <dir>` (where the server keeps its storage; default `demo/.run`,
 git-ignored and wiped on every start), and `-- <flags>` to hand anything else to the server, e.g.
